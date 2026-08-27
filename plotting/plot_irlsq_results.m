@@ -3,12 +3,18 @@
 % The sparse-input IR-LSQ benchmark runs every Q-less QR variant selected by
 % method_mask through the IR-LSQ pipeline (Algorithm 1, Epperly–Meier–Nakatsukasa
 % 2025) on a tall sparse matrix loaded from a .mtx file. Each (algorithm, run)
-% does Q-less QR → 2-step IR (x_0 = 0) with inner CG.
+% does Q-less QR → restarted IR (x_0 = 0; up to ir_n_steps rounds, outer_tol and
+% the LS-floor exit end it early) with inner CG. (The "2-step IR" wording that
+% used to live here described the pre-2026-08-07 fixed-round scheme.)
 %
-% CSV schema (results):
+% CSV schema (results; all reads are NAME-based, this comment is documentation):
 %   algorithm, run, m, n, qr_status, qr_time_us, peak_rss_kb, analytical_kb,
 %   orth_error, ir_total_us, ir_outer_iters, ir_inner_iters_total,
-%   ls_residual_norm, ls_solution_error
+%   ls_residual_norm, ls_solution_error, [reg schema: kappa/mu/precision columns,]
+%   ir_inner_capped, ir_inner_relres, ir_inner_best_relres, ir_inner_best_iter,
+%   cond_precond, ir_setup_us, lsqr_iters, engine_status, stop_reason
+% (the last three columns and a REAL ir_setup_us arrived 2026-08-27; a
+%  *_rounds.csv sidecar carries per-round engine records.)
 %
 % ls_residual_norm uses the Higham normwise backward-error metric
 %   ||A x - b|| / (||A||_2 * ||x|| + ||b||),
@@ -19,6 +25,8 @@
 % CSV schema (breakdown):
 %   algorithm, run, phase, t0..t10
 %   phase in {QR, IR}.  IR layout (6): outer_total, inner_cg_total, trsm, fwd, adj, other.
+%   Since 2026-08-27 Blendenpik-family rows carry real IR entries too (refine rows:
+%   engine split; published rows: the LSQR op split with a 0 inner_cg slot).
 %
 % Usage:
 %   plot_irlsq_results(data_dir, results_csv, breakdown_csv)
@@ -57,8 +65,8 @@ w_ltgray    = [0.85 0.85 0.85];
 % the like-for-like comparison sit side by side.
 % "Blendenpik_cold" appears in [NEW 08-05]+ CSVs (warm x_0 is Blendenpik-only and
 % both variants run). "Blendenpik" keeps its bare label; the era note carries policy.
-alg_csv_order  = {'CQRRT_linop', 'CholQR', 'CholQR2', 'sCholQR3_basic', 'sCholQR3', 'Blendenpik', 'Blendenpik_cold', 'Blendenpik_refine', 'Blendenpik_cold_refine'};
-alg_disp_names = {'CQRRT\_linop', 'CholQR', 'CholQR2', 'sCholQR3 (basic)', 'sCholQR3 (blocked)', 'Blendenpik', 'Blendenpik (cold x_0)', 'Blendenpik +refine', 'Blendenpik (cold) +refine'};
+alg_csv_order  = {'CQRRT_linop','CQRRT_linop_gemmL', 'CholQR', 'CholQR2', 'sCholQR3_basic', 'sCholQR3', 'Blendenpik', 'Blendenpik_cold', 'Blendenpik_refine', 'Blendenpik_cold_refine'};
+alg_disp_names = {'CQRRT','CQRRT (GEMM left)', 'CholQR', 'CholQR2', 'sCholQR3 (no blocking)', 'sCholQR3', 'Blendenpik', 'Blendenpik (zero x_0)', 'Blendenpik + refinement', 'Blendenpik (zero x_0) + refinement'};
 
 % =========================================================================
 %  Load CSVs.  count_comment_lines is a helper in this directory; we rely on
@@ -96,6 +104,12 @@ T = readtable(results_path, opts);
 % ('best of 5 runs' / 'mean of 5 runs') lands in the figure title.
 [T, agg_note] = aggregate_runs(T, timing_agg);
 
+% 2026-08-24 (Oleg): paper-figure roster trim. sCholQR3_basic (the no-blocking
+% control) and every Blendenpik row except the stabilized "Blendenpik +
+% refinement" are dropped from the PLOTS only; the CSVs keep all rows.
+alg_plot_exclude = {'sCholQR3_basic', 'Blendenpik', 'Blendenpik_cold', 'Blendenpik_cold_refine'};
+T(ismember(T.algorithm, alg_plot_exclude), :) = [];
+
 algorithms       = T.algorithm;
 qr_status        = T.qr_status;
 qr_time          = T.qr_time_us;
@@ -107,13 +121,8 @@ ls_residual_norm = T.ls_residual_norm;
 orth_error       = T.orth_error;
 m_val            = T.m(1);
 n_val            = T.n(1);
-% chol_retries (adaptive-shift retries) is present in irlsq_reg CSVs from 2026-07;
-% default to 0 for older CSVs that predate the column.
-if ismember('chol_retries', T.Properties.VariableNames)
-    chol_retries = T.chol_retries;
-else
-    chol_retries = zeros(height(T), 1);
-end
+% (The adaptive-shift retries and canonical-GEQRF-rate panels were removed
+%  2026-08-24 per Oleg; chol_retries stays in the CSVs, just unplotted.)
 
 % =========================================================================
 %  Sort algorithms by display order
@@ -160,11 +169,13 @@ for a = 1:n_algs
 end
 
 % =========================================================================
-%  Main figure: 2x4 layout (7 panels; bottom-right tile blank)
+%  Main figure: 2x3 layout (5 panels; bottom-right tile blank)
 %    row 1: (1) Stacked timing QR+IR  (2) Normwise backward error
-%           (3) Memory peak vs analytical  (4) Q-factor orthogonality loss
-%    row 2: (5) Inner CG iterations (setup/work stacked when setup exists)
-%           (6) QR build canonical GEQRF rate  (7) Adaptive-shift retries
+%           (3) Memory peak vs analytical
+%    row 2: (4) Q-factor orthogonality loss
+%           (5) Inner CG iterations (setup/work stacked when setup exists)
+%  (QR-build canonical rate + adaptive-shift retries panels removed 2026-08-24
+%   per Oleg's review.)
 % =========================================================================
 if isempty(main_tab)
     figure('Position', [100, 100, 1100, 900]);
@@ -172,7 +183,7 @@ if isempty(main_tab)
 else
     parent_main = main_tab;
 end
-tl_main = tiledlayout(parent_main, 2, 4, 'TileSpacing', 'compact', 'Padding', 'compact');
+tl_main = tiledlayout(parent_main, 2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 
 title_label = sprintf('Sparse IR-LSQ Benchmark — %d \\times %d', m_val, n_val);
 if ~isempty(title_suffix)
@@ -185,44 +196,53 @@ title(tl_main, title_label, 'FontWeight', 'bold');
 
 x_pos = 1:n_algs;
 
-% ---- (1) Stacked timing: QR + warm start + IR ----
-% The warm-start x0 build (ir_setup_us, inside ir_total_us) is its own segment
-% (2026-07-30, Max) so the solve segment is pure iteration time and matches the
-% iterations panel; campaigns without the column render as before (segment = 0).
+% ---- (1) Stacked timing: QR + warm start (x_0 build) + solve ----
+% Since 2026-08-27: ir_setup_us is a REAL column (the Blendenpik x0 build; the
+% dead "embedded warm start" annotation block that used to live here targeted a
+% row the roster filter had removed and matched a header phrase no CSV carries).
+% The solve splits into inner-CG work vs restart overhead when the breakdown CSV
+% is available (Max's two-color request): the inner-CG color (orange) MATCHES
+% the iterations panel, so a bar's count and its cost are the same color.
 nexttile(tl_main, 1);
 qr_ms  = arrayfun(@(i) qr_time(i)/1000,     sel_idx);
 ir_ms  = arrayfun(@(i) ir_total_us(i)/1000, sel_idx);
 ws_ms  = zeros(n_algs, 1);
 if ismember('ir_setup_us', T.Properties.VariableNames)
     ws_ms = arrayfun(@(i) max(T.ir_setup_us(i), 0)/1000, sel_idx);
-    ir_ms = ir_ms - ws_ms;                       % solve segment = iterations only
 end
-qr_ms(sel_failed) = 0;  ir_ms(sel_failed) = 0;  ws_ms(sel_failed) = 0;
-b = bar(x_pos, [qr_ms, ws_ms, ir_ms], 'stacked');
-b(1).FaceColor = w_blue;      b(1).DisplayName = 'QR';
-b(2).FaceColor = w_vermilion; b(2).DisplayName = 'warm start (x_0 build)';
-b(3).FaceColor = w_orange;    b(3).DisplayName = 'IR-LSQ iterations';
-if ~any(ws_ms > 0), delete(b(2)); end            % legend stays clean on old data
-% Blendenpik's warm start reuses its own sketch factors (ir_setup_us = 0 by
-% design), so it never gets an orange segment -- which reads as "not
-% warm-started" (Max, 2026-07-31). State it explicitly when the CSV provenance
-% header says the run was bp-warm.
-hdr_txt = fileread(results_path);
-if ~isempty(regexp(hdr_txt, 'bp_warm_start=1', 'once'))
-    bp_i = find(strcmp(unique_algs, 'Blendenpik'), 1);
-    if ~isempty(bp_i) && ~sel_failed(bp_i)
-        text(x_pos(bp_i), qr_ms(bp_i) + ws_ms(bp_i) + ir_ms(bp_i), 'warm x_0 (embedded)', ...
-             'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-             'FontSize', 8, 'Color', w_vermilion, 'FontWeight', 'bold');
+% Inner-CG slice from the breakdown CSV (IR row, t1 = inner_cg_total).
+inner_ms = ir_ms; ovh_ms = zeros(n_algs, 1);
+if isfile(breakdown_path)
+    n_skip_b0 = count_comment_lines(breakdown_path);
+    Tb0 = readtable(breakdown_path, 'NumHeaderLines', n_skip_b0);
+    for a = 1:n_algs
+        if sel_failed(a), continue; end
+        match = strcmp(Tb0.algorithm, unique_algs{a}) & strcmp(Tb0.phase, 'IR');
+        run_i = T.run(sel_idx(a));
+        if run_i >= 0, match = match & Tb0.run == run_i; end
+        idx = find(match, 1);
+        if ~isempty(idx) && Tb0.t1(idx) > 0
+            inner_ms(a) = Tb0.t1(idx)/1000;
+            ovh_ms(a)   = max(ir_ms(a) - inner_ms(a), 0);
+        end
     end
 end
+qr_ms(sel_failed) = 0; inner_ms(sel_failed) = 0; ovh_ms(sel_failed) = 0; ws_ms(sel_failed) = 0;
+b = bar(x_pos, [qr_ms, ws_ms, inner_ms, ovh_ms], 'stacked');
+b(1).FaceColor = w_blue;      b(1).DisplayName = 'QR / sketch build';
+b(2).FaceColor = w_vermilion; b(2).DisplayName = 'warm start (x_0 build)';
+b(3).FaceColor = w_orange;    b(3).DisplayName = 'solve: inner CG';
+b(4).FaceColor = w_gray;      b(4).DisplayName = 'solve: restart overhead';
+if ~any(ws_ms > 0),  delete(b(2)); end           % legend stays clean on old data
+if ~any(ovh_ms > 0), b(3).DisplayName = 'solve'; delete(b(4)); end
 ylabel('Time (ms)'); title('Wall-time per algorithm');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 legend('Location', 'northwest'); grid on; box on;
+tot_ms = qr_ms + ws_ms + inner_ms + ovh_ms;
 for a = 1:n_algs
-    if sel_failed(a)
-        text(x_pos(a), 1, 'FAIL', 'HorizontalAlignment', 'center', ...
-             'FontWeight', 'bold', 'Color', w_vermilion);
+    if sel_failed(a)   % 2% of the axis, not y=1 ms, so the label is visible at any scale
+        text(x_pos(a), 0.02*max(1, max(tot_ms)), 'FAIL', 'HorizontalAlignment', 'center', ...
+             'VerticalAlignment', 'bottom', 'FontWeight', 'bold', 'Color', w_vermilion);
     end
 end
 
@@ -232,7 +252,17 @@ resid = arrayfun(@(i) ls_residual_norm(i), sel_idx);
 resid(sel_failed) = NaN;
 resid(resid < 0) = NaN;
 bar(x_pos, resid, 'FaceColor', w_skyblue); set(gca, 'YScale', 'log');
-ylim([1e-16, 1e0]);
+% Dynamic decade limits (2026-08-27, ported from the Toeplitz plotter's 08-24
+% fix): the old hard floor at 1e-16 sat ABOVE the best methods' values on
+% native_ill (5.3e-17 to 6.9e-17), and log bars draw from the axis bottom, so
+% the three most accurate methods rendered as MISSING bars. One decade of
+% margin below the finite minimum keeps every bar visible.
+fin = resid(isfinite(resid) & resid > 0);
+if ~isempty(fin)
+    ylim([10^(floor(log10(min(fin))) - 1), 10^ceil(log10(max(fin)))]);
+else
+    ylim([1e-16, 1e0]);
+end
 ylabel('||Ax - b|| / (||A||\cdot||x|| + ||b||)'); title('Normwise backward error');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 grid on; box on;
@@ -245,10 +275,13 @@ for a = 1:n_algs
 end
 
 % ---- (3) Memory: peak RSS vs analytical prediction ----
+% analytical <= 0 = "no analytical model" (-1 sentinel since 2026-08-27; 0 in
+% older CSVs): no bar, rather than a real-looking zero-MB bar.
 nexttile(tl_main, 3);
 mem_peak = arrayfun(@(i) peak_rss_kb(i),   sel_idx) / 1024;     % MB
 mem_pred = arrayfun(@(i) analytical_kb(i), sel_idx) / 1024;     % MB
-mem_peak(sel_failed) = 0;  mem_pred(sel_failed) = 0;
+mem_pred(mem_pred <= 0) = NaN;
+mem_peak(sel_failed) = NaN;  mem_pred(sel_failed) = NaN;
 b = bar(x_pos, [mem_peak, mem_pred], 'grouped');
 b(1).FaceColor = w_purple;     b(1).DisplayName = 'Peak RSS';
 b(2).FaceColor = w_ltgray;     b(2).DisplayName = 'Analytical';
@@ -256,24 +289,25 @@ ylabel('Memory (MB)'); title('Peak vs predicted working memory');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 legend('Location', 'northwest'); grid on; box on;
 
-% ---- (4) Inner CG iterations (total across both outer IR steps) ----
-% Algorithmic signal: lower = R is a better preconditioner for A^T A.
-% Outer iters are fixed at n_refine_steps = 2 by construction; only inner CG
-% varies across algorithms, so we plot only inner totals.
+% ---- (4) Inner CG iterations (total across the outer IR rounds) ----
+% Algorithmic signal: lower = R is a better preconditioner for A^T A. Outer
+% rounds VARY per method (up to ir_n_steps, with outer_tol and the LS-floor
+% exit ending runs early; the old "fixed at 2 by construction" note described
+% the pre-2026-08-07 scheme); their per-round overhead is the gray segment in
+% panel (1), so plotting inner totals here stays honest.
 nexttile(tl_main, 5);
 inner_iters = arrayfun(@(i) ir_inner_total(i), sel_idx);
 inner_iters(sel_failed) = NaN;
-% Setup-vs-work split (2026-07-30, Max): when a method carries prep work inside
-% its solve (e.g. the sketch-and-solve warm start), show it as a gray BASE
-% segment in TIME-EQUIVALENT iterations, so the stacked total stays proportional
-% to the orange solve time in panel (1) and the two panels cannot disagree.
-% Needs an ir_setup_us column; campaigns without one plot exactly as before.
+% Setup-vs-work split (2026-07-30, Max): when a method carries prep work
+% (the sketch-and-solve warm start), show it as a base segment in
+% TIME-EQUIVALENT iterations, so the stacked total stays proportional
+% to the solve time in panel (1) and the two panels cannot disagree.
 setup_iters = zeros(n_algs, 1);
 if ismember('ir_setup_us', T.Properties.VariableNames)
     su  = max(T.ir_setup_us(sel_idx), 0);
-    wus = max(ir_total_us(sel_idx) - su, 1);   % pure iteration time
+    wus = ir_total_us(sel_idx);                % solve time (setup is its own slot now)
     setup_iters = su ./ wus .* inner_iters;    % warm start in time-equiv iterations
-    setup_iters(~isfinite(setup_iters)) = 0;
+    setup_iters(~isfinite(setup_iters) | wus <= 0) = 0;   % degenerate denominator: suppress
 end
 hb = bar(x_pos, [setup_iters, inner_iters], 'stacked');
 hb(1).FaceColor = w_vermilion; hb(1).DisplayName = 'warm start (time-equiv iters)';
@@ -296,34 +330,7 @@ for a = 1:n_algs
     end
 end
 
-% ---- (6) QR build: canonical GEQRF rate ----
-% KB / dissertation convention: flops of STANDARD Householder QR for this (m,n)
-% divided by the measured build time of the TESTED method. The numerator is
-% method-independent, so this is a task-normalized throughput that compares
-% different QRs fairly; higher = faster build. Blendenpik is charged the same
-% canonical flops although it factors only the sketch -- that advantage is the
-% point of the metric. Methods with no QR build (unpreconditioned) show N/A.
-nexttile(tl_main, 6);
-fl_canon   = 2*m_val*n_val^2 - (2/3)*n_val^3;
-qr_s       = arrayfun(@(i) qr_time(i), sel_idx) * 1e-6;
-canon_rate = (fl_canon ./ qr_s) / 1e9;
-canon_rate(qr_s <= 0 | sel_failed) = NaN;
-bar(x_pos, canon_rate, 'FaceColor', w_blue);
-ylabel('canonical GFLOP/s'); title('QR build: canonical GEQRF rate');
-xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
-grid on; box on;
-for a = 1:n_algs
-    if isnan(canon_rate(a))
-        text(x_pos(a), 0, 'N/A', 'HorizontalAlignment', 'center', ...
-             'VerticalAlignment', 'bottom', 'FontWeight', 'bold', 'Color', w_gray);
-    else
-        text(x_pos(a), canon_rate(a), sprintf('%.0f', canon_rate(a)), ...
-             'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
-             'FontWeight', 'bold');
-    end
-end
-
-% ---- (5) Orthogonality loss in Q-factor: ||Q^T Q - I||_F / sqrt(n) ----
+% ---- (4) Orthogonality loss in Q-factor: ||Q^T Q - I||_F / sqrt(n) ----
 nexttile(tl_main, 4);
 orth_vals = arrayfun(@(i) orth_error(i), sel_idx);
 orth_vals(sel_failed) = NaN;
@@ -343,32 +350,14 @@ for a = 1:n_algs
     end
 end
 
-% ---- (6) Cholesky adaptive-shift retries (0 = clean; N/A for Blendenpik) ----
-% How many times each CholeskyQR method had to grow the diagonal shift and retry
-% potrf. 0 = the unshifted first attempt succeeded; higher = a more ill-conditioned
-% (e.g. single-precision) Gram that needed regularization to factor.
-nexttile(tl_main, 7);
-retries = arrayfun(@(i) chol_retries(i), sel_idx);
-bar(x_pos, retries, 'FaceColor', w_gray);
-ylabel('Cholesky shift retries'); title('Adaptive-shift retries');
-xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
-grid on; box on;
-ylim([0, max(1, max(retries) * 1.25 + 1)]);
-for a = 1:n_algs
-    if startsWith(unique_algs{a}, 'Blendenpik')
-        lbl = 'N/A';   % Blendenpik (either variant) is not a CholeskyQR method
-    else
-        lbl = sprintf('%d', retries(a));
-    end
-    text(x_pos(a), retries(a), lbl, 'HorizontalAlignment', 'center', ...
-         'VerticalAlignment', 'bottom', 'FontWeight', 'bold');
-end
-
 % =========================================================================
 %  Breakdown figure (optional): IR-LSQ phase breakdown stacked bar
 %  Layout (6 fields): outer_total, inner_cg_total, trsm, fwd, adj, other
+%  Rendered only when the caller supplies bd_tab (2026-08-27): the breakdown
+%  CSV itself is also consumed by panel (1)'s solve split above, and passing it
+%  must not force this extra figure into a tab-export run.
 % =========================================================================
-if isfile(breakdown_path)
+if isfile(breakdown_path) && ~isempty(bd_tab)
     n_skip_b = count_comment_lines(breakdown_path);
     Tb = readtable(breakdown_path, 'NumHeaderLines', n_skip_b);
 

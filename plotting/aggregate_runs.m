@@ -42,8 +42,10 @@ max_runs = 0;
 % The total-time column pair differs between the two schemas.
 if ismember('ir_total_us', T.Properties.VariableNames)
     solve_col = 'ir_total_us';        % IR-LSQ (irlsq_reg) results
+    setup_col = 'ir_setup_us';        % warm-start x0 build (real since 2026-08-27)
 elseif ismember('solve_time_us', T.Properties.VariableNames)
     solve_col = 'solve_time_us';      % Toeplitz LS results
+    setup_col = 'setup_us';
 else
     error('aggregate_runs: no ir_total_us or solve_time_us column; unknown schema');
 end
@@ -63,7 +65,12 @@ for a = 1:numel(algs)
         keep(a) = rows(1);            % all failed: keep one row, visibly failed
         continue;
     end
+    % Best-total includes the warm-start setup slice (2026-08-27; before, a warm
+    % row's x0 build did not count against its run selection).
     total = T.qr_time_us(succ) + T.(solve_col)(succ);
+    if ismember(setup_col, T.Properties.VariableNames)
+        total = total + max(T.(setup_col)(succ), 0);
+    end
     [~, ibest] = min(total);
     keep(a) = succ(ibest);
     if strcmp(mode, 'mean')
@@ -71,7 +78,13 @@ for a = 1:numel(algs)
         for v = T.Properties.VariableNames
             col = v{1};
             if ~isnumeric(T.(col)), continue; end
-            mval = mean(T.(col)(succ), 'omitnan');
+            vals = T.(col)(succ);
+            % Sentinel masking (2026-08-27): -1 means "not measured" in several
+            % numeric columns; averaging it as data biases or corrupts the mean
+            % (mean(-1, 1e-14) ~ -0.5, which the plotters then NaN away).
+            vals(vals == -1) = NaN;
+            mval = mean(vals, 'omitnan');
+            if isnan(mval), mval = -1; end   % all-sentinel column stays sentinel
             if any(strcmp(col, count_cols)), mval = round(mval); end
             row.(col) = mval;
         end

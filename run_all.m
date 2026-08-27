@@ -77,25 +77,33 @@ tab_groups = {};   % {tabgroup handle, export prefix}
 %    * Wall-clock is NOT comparable across eras (round policy changed).
 % =========================================================================
 
-ERA_OLD = '[OLD 08-06]';   % 4 outer rounds + outer_tol early exit, 3 runs (see below)
-ERA_NEW = '[NEW 08-10]';   % unified engine, FFT + BLAS-2 thread caps, 4 Blendenpik rows (see above)
-% [OLD 08-06] era (commits 17a60e2 + 3b2ee61, campaign 2026-08-06):
-%   * FEM2: ir_n_steps=4 outer refinement steps (was 2), outer_tol=10*eps early
-%     exit, inner_restarts=1 -- healthy dd methods reach relres ~1.2e-16 in 3
-%     steps (machine precision; the 08-05 era's 2-step runs plateaued ~2-3e-12).
-%   * Toeplitz: solver = restarted_pcg_ne (Oleg's second solver) with the STABLE
-%     round residual; all preconditioned methods sit at the 1.005e-10 noise floor
-%     (the data's 1e-11 noise) with flag=1 at tol 1e-12 -- flag=1 here is NORMAL,
-%     read relres. (Both eras ran Xeon Gold 6430 / 64 threads.)
+% Plotted-era ladder as of 2026-08-27 (audit remediation era added):
+%   [0812 d2]  the 2026-08-16/17 accuracy campaign (d=2n, theory shift, both
+%              Gram arms; 1 run, non-exclusive 16 CPUs, RandLAPACK 3b08493).
+%              Its wall-clock is NOT trustworthy (shared node, single run) and
+%              its Blendenpik refine rows carry the accounting defects the
+%              2026-08-27 audit confirmed; read accuracy/iterations only.
+%   [<NEW>]    the audit-remediation rerun (exclusive 64-CPU nodes, num_runs=5,
+%              redesigned refine rows, inner/overhead solve split recorded).
+%              Wired below with an exist-check, so this script renders whatever
+%              eras are on disk; once the rerun lands, delete the 0812 rows.
+% Two-arm cells: each cell dir holds trsm_left/ + gemm_left/; the merge into one
+% table (gemm-arm CQRRT_linop rows renamed CQRRT_linop_gemmL) happens HERE at
+% plot time via plotting/merge_gram_arms.m (2026-08-27; the old hand-built
+% *_both trees were an unaudited manual step). Flat single-arm cells still work.
+ERA_D2 = '[0812 d2]';
+NOTE_D2 = 'd=2n; theory shift; CQRRT: TRSM vs GEMM left factor; 1 run, shared node';
+ERA_A1  = '[0827 a1]';   % audit-remediation era; adjust the tag if the submit date moves
+NOTE_A1 = 'audit-remediation rerun; d=2n; theory shift; 5 runs, exclusive node';
 TOEP_CAMPAIGNS = {
-    'toeplitz_ls_0806_pcg_ne',  ERA_OLD, '4 fixed cases; restarted PCG-NE solver (stable residual), 3 runs', {'small','fixedm','middle','large'},  false
-    'toeplitz_ls_0810_pcg_ne',  ERA_NEW, '4 fixed cases; unified PCG-NE engine, restart\_drop 1e-4, cap 50, stagnation exit, thread caps, 4 Blendenpik rows, 3 runs', {'small','fixedm','middle','large'},  false
+    'toeplitz_ls_0827_a1_pcg_ne',       ERA_A1, NOTE_A1, {'small','fixedm','middle','large'},  false
+    'toeplitz_ls_0812_d2_both_pcg_ne',  ERA_D2, NOTE_D2, {'small','fixedm','middle','large'},  false
 };
 
 % FEM2 IR-LSQ campaigns: {data subdir, era tag, note, combos to look for}
 FEM2_CAMPAIGNS = {
-    'irlsq_reg_0806',  ERA_OLD, '4 outer steps + 10\epsilon early exit, cap 500, 1 CG restart, 3 runs', {'dd'}
-    'irlsq_reg_0810',  ERA_NEW, 'unified PCG-NE engine: round\_drop 1e-4, cap 50 rounds, stagnation exit, thread caps, 4 Blendenpik rows, 3 runs', {'dd'}
+    'irlsq_reg_0827_a1',       ERA_A1, NOTE_A1, {'dd'}
+    'irlsq_reg_0812_d2_both',  ERA_D2, NOTE_D2, {'dd'}
 };
 
 % 2026-08-05 (Max): the benchmarks now record num_runs repetitions per method
@@ -109,11 +117,15 @@ TIMING_AGG = 'best';
 %  Toeplitz least-squares benchmark (Oleg's 2nd experiment)
 %
 %  Prolate-Toeplitz regularized LS  min ||T x - b||^2 + lambda ||x||^2, augmented
-%  A = [T; sqrt(lambda) I], solved by LSQR with Q-less QR right preconditioners.
-%  6-panel plot_toeplitz_results layout: wall-time (build+solve), data & recovery
-%  error, peak-vs-analytical memory, LSQR iterations, preconditioner orthogonality
-%  loss, Cholesky shift retries. Methods: CQRRT / CholQR / CholQR2 / sCholQR3 /
-%  sCholQR3_basic / Blendenpik / unpreconditioned.
+%  A = [T; sqrt(lambda) I], solved by restarted PCG-NE with Q-less QR right
+%  preconditioners (published Blendenpik rows solve by LSQR; unplotted).
+%  5-panel plot_toeplitz_results layout (trimmed 2026-08-24 per Oleg: recovery/
+%  forward-error bar, canonical-rate and shift-retries panels removed): wall-time
+%  (build + x0 + inner CG + overhead), data error, peak-vs-analytical memory,
+%  preconditioner orthogonality loss, inner CG iterations. Plotted methods: CQRRT (both
+%  Gram arms) / CholQR / CholQR2 / sCholQR3 / Blendenpik + refinement /
+%  unpreconditioned; sCholQR3_basic and the other Blendenpik rows stay in the
+%  CSVs unplotted.
 % =========================================================================
 for cc = 1:size(TOEP_CAMPAIGNS, 1)
     [sub, era, note, order, want_sweep] = deal(TOEP_CAMPAIGNS{cc, :});
@@ -140,20 +152,30 @@ for cc = 1:size(TOEP_CAMPAIGNS, 1)
                  'Position', [80 + 25*cc, 80, 1250, 900]);
     tg = uitabgroup(fig);
     if want_sweep
-        st = uitab(tg, 'Title', sprintf('%s sweep', era));
-        plot_toeplitz_sweep(toep_dir, size_dirs, st, TIMING_AGG);
+        % GATED (2026-08-27 audit): plot_toeplitz_sweep predates the 08-24 roster
+        % trim (no gemmL/refine rows, stale display names, off-scheme colors) and
+        % would produce a wrong paper figure. Update it before re-enabling.
+        error(['run_all: want_sweep is set but plot_toeplitz_sweep is stale ' ...
+               '(pre-08-24 roster); update it before re-enabling the sweep tab.']);
     end
     any_size = false;
     for s = 1:numel(size_dirs)
         size_dir = fullfile(toep_dir, size_dirs{s});
-        f = dir(fullfile(size_dir, '*_toeplitz_ls_results.csv'));
-        f = f([f.bytes] > 0);                    % empty CSV = job died before writing
-        if isempty(f)
-            fprintf('(skipped Toeplitz %s %s -- no non-empty CSV)\n', era, size_dirs{s});
-            continue;
+        % Two-arm cells merge at plot time (merge_gram_arms); flat cells read as before.
+        merged = merge_gram_arms(size_dir, '*_toeplitz_ls_results.csv');
+        if ~isempty(merged)
+            size_dir = fullfile(size_dir, 'merged');
+            res_csv  = merged;
+        else
+            f = dir(fullfile(size_dir, '*_toeplitz_ls_results.csv'));
+            f = f([f.bytes] > 0);                % empty CSV = job died before writing
+            if isempty(f)
+                fprintf('(skipped Toeplitz %s %s -- no non-empty CSV)\n', era, size_dirs{s});
+                continue;
+            end
+            [~, ord] = sort({f.name});           % timestamped names -> newest last
+            res_csv = f(ord(end)).name;
         end
-        [~, ord] = sort({f.name});               % timestamped names -> newest last
-        res_csv = f(ord(end)).name;
         % Label the tab with the FULL m x n, not the folder name. The old folders are
         % named after n only (n%05d), so a tab reading "n16000" sits above a plot
         % titled "32000 x 16000" -- an easy misread of the tab as the matrix shape
@@ -174,10 +196,13 @@ end
 %% ========================================================================
 %  FEM_Problem_2 App-1 IR-LSQ (regularized) + Blendenpik
 %
-%  min ||A x - b||^2 solved by IterRefineLSQ (2 outer refinement steps, inner CG on
-%  the preconditioned normal equations) with Q-less QR right preconditioners, plus
-%  the Blendenpik competitor (SASO sketch + Householder QR + LSQR). One 6-panel
-%  results tab per cell. Runtime-breakdown tabs intentionally suppressed (empty
+%  min ||A x - b||^2 solved by IterRefineLSQ (restarted rounds, up to ir_n_steps,
+%  with outer_tol and LS-floor early exits; inner CG on the preconditioned
+%  normal equations) with Q-less QR right preconditioners, plus
+%  the Blendenpik competitor (SASO sketch + Householder QR + LSQR). One 5-panel
+%  results tab per cell (2026-08-24 trim, per Oleg: canonical-rate and
+%  shift-retries panels removed; sCholQR3_basic + non-refined Blendenpik rows
+%  unplotted). Runtime-breakdown tabs intentionally suppressed (empty
 %  breakdown CSV name).
 %
 %  Cells are DISCOVERED from the directory rather than built from a
@@ -204,17 +229,28 @@ for cc = 1:size(FEM2_CAMPAIGNS, 1)
         any_cell = false;
         for k = 1:numel(mine)
             cell_dir = fullfile(camp_dir, mine{k});
-            f = dir(fullfile(cell_dir, '*_irlsq_reg_results.csv'));
-            f = f([f.bytes] > 0);
-            if isempty(f), fprintf('(missing cell: %s/%s)\n', sub, mine{k}); continue; end
-            [~, ord] = sort({f.name});
-            % NEWEST, consistently. This used to take f(1) (the OLDEST) for FEM2
-            % while the Toeplitz path took the newest -- so a re-run silently did
-            % not show up on one of the two plots.
-            res_csv = f(ord(end)).name;
+            % Two-arm cells merge at plot time (merge_gram_arms); flat cells read as before.
+            merged = merge_gram_arms(cell_dir, '*_irlsq_reg_results.csv');
+            if ~isempty(merged)
+                cell_dir = fullfile(cell_dir, 'merged');
+                res_csv  = merged;
+            else
+                f = dir(fullfile(cell_dir, '*_irlsq_reg_results.csv'));
+                f = f([f.bytes] > 0);
+                if isempty(f), fprintf('(missing cell: %s/%s)\n', sub, mine{k}); continue; end
+                [~, ord] = sort({f.name});
+                % NEWEST, consistently. This used to take f(1) (the OLDEST) for FEM2
+                % while the Toeplitz path took the newest -- so a re-run silently did
+                % not show up on one of the two plots.
+                res_csv = f(ord(end)).name;
+            end
             label = strrep(mine{k}, '_', '\_');
             mt = uitab(tg, 'Title', sprintf('%s %s', era, mine{k}));
-            plot_irlsq_results(cell_dir, res_csv, '', ...
+            % Pass the breakdown CSV so the wall-time panel can split the solve
+            % into inner CG vs restart overhead (2026-08-27); bd_tab stays []
+            % which SUPPRESSES the separate breakdown figure.
+            bd_csv = strrep(res_csv, '_results.csv', '_breakdown.csv');
+            plot_irlsq_results(cell_dir, res_csv, bd_csv, ...
                 sprintf('%s   [%s]   %s', label, combo, note), mt, [], TIMING_AGG);
             any_cell = true;
         end
@@ -267,9 +303,12 @@ function s = era_slug(era)
 % '[OLD 07-11/07-15]' -> 'OLD'.  Keeps PDF prefixes short but unambiguous.
 % warm/cold eras keep their qualifier so the two figure sets export to
 % DISTINCT filenames instead of overwriting each other (2026-07-31).
+    % Slug the WHOLE tag (2026-08-27 fix): the old leading-uppercase match
+    % returned empty on digit-led tags like '[0812 d2]', so those exports
+    % silently degraded to the generic 'ERA' prefix, and a future digit-led
+    % era would have COLLIDED with them.
     t = regexprep(era, '[\[\]]', '');
-    s = regexp(t, '^[A-Z]+', 'match', 'once');
+    s = regexprep(strtrim(t), '[^A-Za-z0-9]+', '_');
+    s = regexprep(s, '^_+|_+$', '');
     if isempty(s), s = 'ERA'; end
-    if contains(t, 'warm'), s = [s '_warm'];
-    elseif contains(t, 'cold'), s = [s '_cold']; end
 end

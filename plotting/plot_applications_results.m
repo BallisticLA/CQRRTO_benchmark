@@ -202,7 +202,12 @@ n_comments_bd = count_comment_lines(breakdown_path);
 bd_opts = detectImportOptions(breakdown_path, 'NumHeaderLines', n_comments_bd);
 T_bd = readtable(breakdown_path, bd_opts);
 bd_algs  = T_bd.algorithm;
-bd_times = T_bd{:, 5:end};   % skip m, n, run, algorithm
+% Name-based selection (2026-08-27): every t* column, in order. The old
+% positional `T_bd{:, 5:end}` is the read pattern that silently grabbed the
+% wrong column once before (07-31 awk incident class); a schema change ahead
+% of the t-block would have shifted every slice here without an error.
+t_names  = T_bd.Properties.VariableNames(startsWith(T_bd.Properties.VariableNames, 't'));
+bd_times = T_bd{:, t_names};
 
 % Operation-to-color mapping (same operation = same color across all subplots):
 %
