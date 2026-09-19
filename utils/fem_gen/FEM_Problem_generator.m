@@ -26,7 +26,7 @@ function FEM_Problem_generator(out_dir, basename)
 %   FEM_Problem_generator(out_dir, basename);                    % custom paths
 
 if nargin < 1
-    out_dir = '/home/mymel/matlab/QLCQRRT_benchmark/input_matrices';
+    out_dir = '/home/mymel/matlab/CQRRTO_benchmark/input_matrices';
 end
 if nargin < 2
     basename = 'FEM_Problem_2_corrected';

@@ -77,33 +77,228 @@ tab_groups = {};   % {tabgroup handle, export prefix}
 %    * Wall-clock is NOT comparable across eras (round policy changed).
 % =========================================================================
 
-% Plotted-era ladder as of 2026-08-27 (audit remediation era added):
-%   [0812 d2]  the 2026-08-16/17 accuracy campaign (d=2n, theory shift, both
-%              Gram arms; 1 run, non-exclusive 16 CPUs, RandLAPACK 3b08493).
-%              Its wall-clock is NOT trustworthy (shared node, single run) and
-%              its Blendenpik refine rows carry the accounting defects the
-%              2026-08-27 audit confirmed; read accuracy/iterations only.
-%   [<NEW>]    the audit-remediation rerun (exclusive 64-CPU nodes, num_runs=5,
-%              redesigned refine rows, inner/overhead solve split recorded).
-%              Wired below with an exist-check, so this script renders whatever
-%              eras are on disk; once the rerun lands, delete the 0812 rows.
+% Plotted eras (2026-09-14): FEM2 = [0911 n11], Toeplitz = [0902 ns1]. ONE set of
+% runs per benchmark. Both ran RandLAPACK dabde67 (92061e2 plus the
+% RANDLAPACK_CHOL_SYMMETRIZE knob), EXCLUSIVE 64 threads, every cell on srm1526
+% (the srm1527 twin; same Gold 6430 SKU -- cross-era wall-clock against the
+% srm1527 eras carries the twin-node caveat from the 08-31 provenance note).
+% The two benchmarks are on DIFFERENT era tags because only the FEM2 family was
+% rerun with noise: the Toeplitz cells were never affected by the CLI slot bug
+% (they do not take a noise argument on that path) and are unchanged since 09-02.
+% Older eras are RETIRED from the plots; their data is retained under results/
+% and on ISAAC, so re-adding a row below re-renders them.
+%
+%   [0911 n11] THE NOISY-RHS FEM2 ERA -- the plotted FEM2 set. Identical to
+%              [0902 ns1] in every respect (same commit dabde67, same
+%              RANDLAPACK_CHOL_SYMMETRIZE=0 arm, adaptive rescue ACTIVE, d=2n,
+%              3 runs, EXCLUSIVE 64 threads, srm1526) EXCEPT that the right-hand
+%              side now carries noise: b = A*x_true + noise with
+%              noise_level = 1e-11, where every prior FEM2 era ran noise-free.
+%              WHY THIS ERA EXISTS: with a noise-free b the least-squares problem
+%              is consistent, so Blendenpik's sketch-and-solve initial guess is
+%              already accurate to u*kappa and its warm row did no measurable
+%              work -- it entered at the floor and stopped. That made the warm
+%              Blendenpik row uninformative and did not match the published
+%              method (Oleg, 09-07). With noise at 1e-11 the initial guess enters
+%              at the noise level instead: measured x0_relres is 1.33e-11 in all
+%              three cells, against 3.6e-15 in the noise-free eras, and the warm
+%              refined row now runs 3 outer / 17 inner iterations.
+%              PROVENANCE WARNING: era [0907 n11] was the FIRST attempt at this
+%              and is NOT a noisy era -- gen_irlsq_reg_jobs.sh wrote the noise
+%              level into the omega slot (argv[14]) and left the noise slot
+%              (argv[13]) at 0, so every 0907 cell ran noise-free. It is retained
+%              as a Platinum 8462Y+ hardware control, NOT as a noise era. Any
+%              FEM2 era added below must be checked with
+%              irlsq_reg/check_irlsq_reg_args.py before it is plotted.
+%              Era-wide acceptance: qr_status=0 on all 72 rows (8 methods x 3
+%              runs x 3 cells), zero failed factorizations, CQRRT 0 retries in
+%              every cell, CholQR rescued (retries=1) in every cell.
+%
+%   [0902 ns1] THE NO-SYMMETRIZATION ARM (pre-B5 arithmetic on the audited,
+%              fully instrumented binary). RANDLAPACK_CHOL_SYMMETRIZE=0: the
+%              Gram is factorized with its upper triangle as computed, no
+%              (G+G')/2 -- the pre-audit behavior, isolated after the 09-02
+%              finding that the symmetrization's ULP-level re-rounding of two
+%              knife-edge pivots (native_ill cols 8066/8303) was the sole cause
+%              of the 0827->0829 CholQR flip (graded-pivot mechanism; see
+%              dev-logs/2026-09-02-b-qless-qr-cholqr-graded-pivot-reinvestigation.md).
+%              RANDLAPACK_CHOL_MAX_RETRIES unset: the adaptive shift rescue is
+%              ACTIVE (pre-audit policy), so rescued rows carry chol_retries>0
+%              and the chol_shift_* columns instead of FAIL stubs. Era-wide:
+%              zero failed factorizations; CQRRT 0 retries in all 42 rows;
+%              CholQR retries=1 in all 42 (unshifted potrf fails everywhere
+%              with symmetrization off, native_ill included); FEM2 CQRRT rows
+%              bit-identical to [0827 a1]. NOTE: the paper PRESCRIBES the
+%              symmetrization -- this is the diagnostics/robustness arm, not a
+%              candidate figure set for the paper without saying so in prose.
+%
+%   [0831 a1]  THE FIXED-ALGORITHM ERA. Every published Q-less row runs with
+%              RANDLAPACK_CHOL_MAX_RETRIES=0, so a Cholesky breakdown reports as
+%              a FAIL row (qr_status != 0) instead of silently switching the row
+%              to the adaptive-shift-rescued variant of its method. That switch
+%              is why earlier eras could not be read at face value: on the
+%              FEM2 native_ill cell the POTRF verdict is decided by BLAS
+%              summation order, so 64 vs 32 threads changed WHICH ALGORITHM a row
+%              measured while the label stayed the same (see
+%              randnla/reports/2026-08-31-iterations-vs-walltime-canonical.md).
+%              Acceptance-checked by plotting/verify_0831_fixed_algorithm.py,
+%              which pre-registers the per-row prediction from [0829 a1]
+%              (chol_retries > 0 there => FAIL row here): 30/30 held.
+%              CQRRT is unchanged from [0829 a1] (identical iteration counts,
+%              QR times within run-to-run noise), which is the control: the knob
+%              only ever touches the breakdown path.
+%   [0829 a1]  NOT PLOTTED (row commented out below). The last era in which a
+%              rescued row could masquerade as its unshifted method; kept for the
+%              cross-era comparison the verifier relies on.
+%   [0829 b1]  NOT PLOTTED. Same commit and node as 0829 a1 but NON-EXCLUSIVE on
+%              32 CPUs: accuracy-grade only, WALL-CLOCK NOT CITABLE. Keep it as
+%              the replication record -- it is the era that exposed the
+%              thread-count-dependent branch in the first place.
+%
+% WHAT CHANGED vs [0827 a1] (read before comparing):
+%   * cond_precond is REAL for the first time. The old code computed it
+%     unconditionally despite the CLI flag; that bug is fixed and the SLURM
+%     scripts now pass compute_cond=1 (they passed 0 before, which would now
+%     honestly report -1).
+%   * The warm Blendenpik row's LSQR stop test was rescaled to a TRUE relative
+%     residual (audit item A7), so its iteration count and stop_reason move.
+%     That is a correction, not a regression: the old row was not
+%     tolerance-comparable to the other methods.
+%   * cholqr_primitive now symmetrizes the Gram, (G+G')/2, before potrf, so
+%     ULP-level drift against 0827_a1 is expected everywhere.
+%   * The paper shift 11*n*eps*trace(G) is now the library DEFAULT; the
+%     RANDLAPACK_SCHOLQR3_SHIFT=theory export the scripts still carry is a no-op.
+%   * sCholQR3 breakdown CSVs are complete (t0..t17 + t_total); they were
+%     truncated mid-iteration-3 before.
 % Two-arm cells: each cell dir holds trsm_left/ + gemm_left/; the merge into one
 % table (gemm-arm CQRRT_linop rows renamed CQRRT_linop_gemmL) happens HERE at
 % plot time via plotting/merge_gram_arms.m (2026-08-27; the old hand-built
 % *_both trees were an unaudited manual step). Flat single-arm cells still work.
-ERA_D2 = '[0812 d2]';
-NOTE_D2 = 'd=2n; theory shift; CQRRT: TRSM vs GEMM left factor; 1 run, shared node';
-ERA_A1  = '[0827 a1]';   % audit-remediation era; adjust the tag if the submit date moves
-NOTE_A1 = 'audit-remediation rerun; d=2n; theory shift; 5 runs, exclusive node';
+% Retired era tag kept (unused) so re-enabling the 0812 comparison is one line
+% in TOEP_CAMPAIGNS / FEM2_CAMPAIGNS rather than an archaeology exercise.
+% Retired era tags kept (unused) so re-enabling a comparison is one line in
+% TOEP_CAMPAIGNS / FEM2_CAMPAIGNS rather than an archaeology exercise.
+ERA_D2 = '[0812 d2]';  %#ok<NASGU>
+NOTE_D2 = 'd=2n; theory shift; CQRRT: TRSM vs GEMM left factor; 1 run, shared node';  %#ok<NASGU>
+ERA_A1  = '[0827 a1]';  %#ok<NASGU>
+NOTE_A1 = 'audit-remediation rerun; d=2n; theory shift; 3 runs, exclusive node';  %#ok<NASGU>
+
+% The two plotted eras. The b1 note leads with the timing caveat on purpose: it
+% lands in the tab title and inside the exported PDF, so a wall-time panel can
+% never be read as citable once the figure is separated from this file.
+ERA_A2  = '[0829 a1]';  %#ok<NASGU>
+NOTE_A2 = 'post-audit + paper-consistency rerun; d=2n; 3 runs; EXCLUSIVE 64 threads; timings citable';  %#ok<NASGU>
+ERA_B1  = '[0829 b1]';  %#ok<NASGU>
+NOTE_B1 = 'ACCURACY-GRADE (timings NOT citable: shared node, 32 threads); post-audit + paper-consistency rerun; d=2n; 3 runs';  %#ok<NASGU>
+
+% [0831 a1] NOT PLOTTED (rows commented out below): fixed-algorithm rerun with
+% RANDLAPACK_CHOL_MAX_RETRIES=0 on every published Q-less row, so a Cholesky
+% breakdown reports as a FAIL row instead of silently measuring the
+% shift-rescued variant (the 2026-08-31 native_ill thread-count finding).
+% Same protocol otherwise: exclusive 64 threads, d=2n, 3 runs. Ran 08-31/09-01
+% (6 cells srm1527; toep_large pulled separately); retired from the plots
+% 2026-09-04 in favor of [0902 ns1].
+ERA_A3  = '[0831 a1]';  %#ok<NASGU>
+NOTE_A3 = 'fixed-algorithm rerun (chol_max_retries=0: breakdown = FAIL row); d=2n; 3 runs; EXCLUSIVE 64 threads; timings citable';  %#ok<NASGU>
+
+% [0902 ns1] (PLOTTED): the no-symmetrization arm -- see the era block at the
+% top of this section. The note leads with the arm identity on purpose: it lands
+% in the tab title and the figure Name. 2026-09-04 (Max): the note is NO LONGER
+% written into the in-plot super-title (paper figures carry only the problem
+% label); the exported PDF filename prefix still carries the era tag.
+ERA_NS1  = '[0902 ns1]';
+NOTE_NS1 = 'NO-SYMMETRIZATION ARM (pre-B5: Gram as computed; adaptive shift rescue ACTIVE, rescued rows carry chol_retries>0); d=2n; 3 runs; EXCLUSIVE 64 threads (srm1526); timings citable within-era';
+
+% [0911 n11] (PLOTTED, FEM2 ONLY): the noisy-RHS FEM2 era -- see the era block at
+% the top of this section. Same arm and protocol as [0902 ns1]; the ONLY change
+% is noise_level=1e-11 on the right-hand side, which is what makes the warm
+% Blendenpik row measure anything. Ran 09-12 on srm1526 via long-bigmem, 3 whole
+% cells (NOT the per-method split the ai-tenn attempt used).
+% [0907 n11] is deliberately absent: despite the tag it ran noise-free (CLI slot
+% bug, see the era block), and is kept only as a hardware control.
+ERA_N11  = '[0911 n11]';
+NOTE_N11 = 'NOISY RHS b = A*x_true + noise, noise_level=1e-11 (all earlier FEM2 eras were noise-free); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; EXCLUSIVE 64 threads (srm1526); timings citable within-era';
+
+% [0914 g1] (PLOTTED, Toeplitz): the [0902 ns1] configuration rerun from commit
+% 3363980, which (a) passes the inner absolute guard to the Toeplitz driver, so the
+% stagnation-probe cycles no longer run full inner solves and the per-method inner
+% counts are the productive ones (CholQR 71 -> 13, Blendenpik 78 -> 25 locally),
+% and (b) writes the sketched Karlson-Walden backward-error sidecar. Ran 09-16 on
+% srm1526 via campus-bigmem, 64 CPUs non-exclusive, both Gram arms
+% (trsm_left/gemm_left merged at plot time). [0902 ns1] stays plotted for the
+% side-by-side; drop it once the paper's Section 5.2.2 numbers have moved.
+ERA_G1  = '[0914 g1]';
+% [0917 f16] (FLOOR PROBE, both benchmarks): the 0914_g1 / 0914_be1 configuration
+% with the inner absolute-residual guard lowered from eps^0.85 (~4.9e-14) to
+% 1e-16, i.e. just below unit roundoff, so the guard should barely bind and the
+% stagnation-confirmation rounds should cost close to what the pre-09-14 Toeplitz
+% eras paid. Measures how much of the 0902 -> 0914 iteration change depends on
+% the floor's value (Max, 2026-09-17). Diagnostic, not the plotted record.
+ERA_F16 = '[0917 f16]';
+% [0917 f0] (FEM, FLOOR OFF): 0914_be1 with the absolute floor disabled
+% (ir_inner_tol=0). Every FEM era so far ran with eps^0.85 while the paper's
+% Toeplitz era 0902_ns1 ran without; this is the FEM record if Oleg rules that
+% no absolute floor belongs in the inner CG (2026-09-17).
+ERA_F0  = '[0917 f0]';
+% [0919 kw1] (BACKWARD-ERROR TERMINATION, both benchmarks): the 0914_g1 / 0914_be1
+% configuration with the engine's outer success test replaced by Epperly's
+% step-two criterion: a run ends once the sketched Karlson-Walden backward error
+% of the iterate is <= sqrt(n)*u*||A||_F (be_tol_mult=1, checked once per round,
+% oracle time excluded from every solve time), and the inner absolute floor is
+% OFF (inner_abs_tol=0 / ir_inner_tol=0). Rows whose stop_reason is not 'be' did
+% not reach the target and are drawn censored by the plotters. The FEM cells run
+% the unpreconditioned row themselves (mask 247) instead of overlaying 0915_up1,
+% whose CSVs predate the new be_kw / t_be_us columns. Decided with Oleg
+% 2026-09-18 (report randnla/reports/2026-09-18-emn24-solver-stopping-rules.md).
+ERA_KW1 = '[0919 kw1]';
+NOTE_KW1_T = 'BACKWARD-ERROR TERMINATION (sketched Karlson-Walden <= sqrt(n) u ||A||_F, be_tol_mult=1; inner floor OFF; 0914_g1 otherwise); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem, non-exclusive); rows not marked be are censored; timings citable within-era';
+NOTE_KW1_F = 'BACKWARD-ERROR TERMINATION (sketched Karlson-Walden <= sqrt(n) u ||A||_F, be_tol_mult=1; inner floor OFF; 0914_be1 otherwise); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (bigmem SPR, non-exclusive); rows not marked be are censored; timings citable within-era';
+NOTE_F16_T ='INNER GUARD FLOOR 1e-16 (probe; 0914_g1 otherwise: inner_abs_tol passed to the Toeplitz driver); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+NOTE_F16_F = 'INNER GUARD FLOOR 1e-16 (probe; 0914_be1 otherwise: ir_inner_tol=1e-16); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (long-bigmem SPR, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+NOTE_F0_F = 'INNER GUARD FLOOR OFF (ir_inner_tol=0; 0914_be1 otherwise); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem SPR, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+NOTE_G1 = 'INNER GUARD FIX (inner_abs_tol passed to the Toeplitz driver; probe cycles no longer inflate inner counts); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem srm1526, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+
+% ONE ERA PER BENCHMARK (2026-08-31, Max). The b1 rows are commented out, not
+% deleted: b1 is the accuracy-grade replication and its data is retained under
+% results/, so re-enabling the comparison is uncommenting one line.
 TOEP_CAMPAIGNS = {
-    'toeplitz_ls_0827_a1_pcg_ne',       ERA_A1, NOTE_A1, {'small','fixedm','middle','large'},  false
-    'toeplitz_ls_0812_d2_both_pcg_ne',  ERA_D2, NOTE_D2, {'small','fixedm','middle','large'},  false
+    'toeplitz_ls_0914_g1_pcg_ne',  ERA_G1,  NOTE_G1,  {'small','fixedm','middle','large'},  false
+    'toeplitz_ls_0919_kw1_pcg_ne', ERA_KW1, NOTE_KW1_T, {'small','fixedm','middle','large'}, false
+    'toeplitz_ls_0917_f16_pcg_ne', ERA_F16, NOTE_F16_T, {'small','fixedm','middle','large'}, false
+    'toeplitz_ls_0902_ns1_pcg_ne', ERA_NS1, NOTE_NS1, {'small','fixedm','middle','large'},  false
+%   'toeplitz_ls_0831_a1_pcg_ne',  ERA_A3, NOTE_A3, {'small','fixedm','middle','large'},  false
+%   'toeplitz_ls_0829_a1_pcg_ne',  ERA_A2, NOTE_A2, {'small','fixedm','middle','large'},  false
+%   'toeplitz_ls_0829_b1_pcg_ne',  ERA_B1, NOTE_B1, {'small','fixedm','middle','large'},  false
 };
 
-% FEM2 IR-LSQ campaigns: {data subdir, era tag, note, combos to look for}
+% [0914 be1] (QUEUED 2026-09-14 on long-bigmem, FEM2): the 0911_n11 configuration
+% rerun from commit 3363980 so every cell also writes the sketched Karlson-Walden
+% backward-error sidecar. Becomes the plotted FEM2 era once pull_0914_be1.sh has
+% run (the loop below skips an era whose results dir is absent).
+ERA_BE1  = '[0914 be1]';
+NOTE_BE1 = 'NOISY RHS b = A*x_true + noise, noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (long-bigmem SPR, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+% OVERLAY ERA [0915 up1] (2026-09-15, Oleg's Figure 6 question): the
+% unpreconditioned reference row (mask bit 128 = the refinement engine on the raw
+% operator, no factor), run as its OWN era so the queued 0914_be1 cells and their
+% pinned install were not touched. merge_overlay_rows appends its rows to each
+% base cell at plot time; the figure note names both builds. Same partition,
+% threads and knobs as 0914_be1; its wall-time bar is comparable only to the
+% extent the two eras landed on the same node SKU (check the PROVENANCE lines).
+OVERLAY_UP1 = 'irlsq_reg_0915_up1';
+
+% FEM2 IR-LSQ campaigns: {data subdir, era tag, note, combos to look for, overlay}
+%   overlay = '' or the results subdir of a second era whose rows are appended
+%   per cell at plot time (see OVERLAY_UP1 above and plotting/merge_overlay_rows.m).
 FEM2_CAMPAIGNS = {
-    'irlsq_reg_0827_a1',       ERA_A1, NOTE_A1, {'dd'}
-    'irlsq_reg_0812_d2_both',  ERA_D2, NOTE_D2, {'dd'}
+    'irlsq_reg_0914_be1',      ERA_BE1, NOTE_BE1, {'dd'}, OVERLAY_UP1
+    'irlsq_reg_0919_kw1',      ERA_KW1, NOTE_KW1_F, {'dd'}, ''    % unpreconditioned row runs IN this era (mask 247): the up1 overlay predates the be_kw/t_be_us columns and merge_overlay_rows requires identical columns
+    'irlsq_reg_0917_f16',      ERA_F16, NOTE_F16_F, {'dd'}, OVERLAY_UP1
+    'irlsq_reg_0917_f0',       ERA_F0,  NOTE_F0_F,  {'dd'}, OVERLAY_UP1
+    'irlsq_reg_0911_n11',      ERA_N11, NOTE_N11, {'dd'}, OVERLAY_UP1
+%   'irlsq_reg_0902_ns1',      ERA_NS1, NOTE_NS1, {'dd'}, ''
+%   'irlsq_reg_0831_a1',       ERA_A3, NOTE_A3, {'dd'}, ''
+%   'irlsq_reg_0829_a1',       ERA_A2, NOTE_A2, {'dd'}, ''
+%   'irlsq_reg_0829_b1',       ERA_B1, NOTE_B1, {'dd'}, ''
 };
 
 % 2026-08-05 (Max): the benchmarks now record num_runs repetitions per method
@@ -134,6 +329,11 @@ for cc = 1:size(TOEP_CAMPAIGNS, 1)
         fprintf('(skipped Toeplitz %s %s -- no data dir %s)\n', era, sub, toep_dir);
         continue;
     end
+    % Refuse a mixed-build era before anything renders (2026-08-29): per-row
+    % provenance only makes mixing DETECTABLE; this makes it FATAL. The build
+    % goes into the note so every figure names the binary it came from.
+    commit = assert_era_commit(toep_dir, era);
+    note = sprintf('%s; build %s', note, commit(1:min(7, numel(commit))));
     if isempty(order)
         % Discover size subfolders, sorted by name (old dirs are zero-padded
         % n%05d, so name order == size order).
@@ -183,7 +383,7 @@ for cc = 1:size(TOEP_CAMPAIGNS, 1)
         shape = toeplitz_shape_label(fullfile(size_dir, res_csv), size_dirs{s});
         mt = uitab(tg, 'Title', sprintf('%s %s', era, shape));
         plot_toeplitz_results(size_dir, res_csv, ...
-            sprintf('prolate Toeplitz, LSQR -- %s  %s', shape, note), mt, TIMING_AGG);
+            sprintf('prolate Toeplitz, PCG-NE: %s', shape), mt, TIMING_AGG);   % era note NOT in the super-title (2026-09-04, Max)
         any_size = true;
     end
     if any_size
@@ -211,10 +411,26 @@ end
 %  at exactly one size), so the old triple loop silently skipped it.
 % =========================================================================
 for cc = 1:size(FEM2_CAMPAIGNS, 1)
-    [sub, era, note, combos] = deal(FEM2_CAMPAIGNS{cc, :});
+    [sub, era, note, combos, overlay_sub] = deal(FEM2_CAMPAIGNS{cc, :});
     camp_dir = fullfile(script_dir, 'results', sub);
     if ~exist(camp_dir, 'dir')
         fprintf('(skipped FEM2 %s %s -- no data dir)\n', era, sub); continue;
+    end
+    % Same mixed-build refusal as the Toeplitz loop (2026-08-29).
+    commit = assert_era_commit(camp_dir, era);
+    note = sprintf('%s; build %s', note, commit(1:min(7, numel(commit))));
+    % Overlay era (2026-09-15): checked for a single build on its own, named in
+    % the note, merged per cell below. Absent = plot without the overlay rows.
+    overlay_dir = '';
+    if ~isempty(overlay_sub)
+        overlay_dir = fullfile(script_dir, 'results', overlay_sub);
+        if exist(overlay_dir, 'dir')
+            ov_commit = assert_era_commit(overlay_dir, sprintf('%s overlay %s', era, overlay_sub));
+            note = sprintf('%s; unpreconditioned row from %s build %s', note, overlay_sub, ov_commit(1:min(7, numel(ov_commit))));
+        else
+            fprintf('(FEM2 %s: overlay %s not pulled yet -- plotting WITHOUT the unpreconditioned row)\n', era, overlay_sub);
+            overlay_dir = '';
+        end
     end
     d = dir(camp_dir);
     cells = sort({d([d.isdir] & ~ismember({d.name}, {'.','..'})).name});
@@ -244,14 +460,22 @@ for cc = 1:size(FEM2_CAMPAIGNS, 1)
                 % not show up on one of the two plots.
                 res_csv = f(ord(end)).name;
             end
+            if ~isempty(overlay_dir)
+                ov_cell = fullfile(overlay_dir, mine{k});
+                if exist(ov_cell, 'dir')
+                    [cell_dir, res_csv] = merge_overlay_rows(cell_dir, res_csv, ov_cell, {'unpreconditioned'});
+                else
+                    fprintf('(FEM2 %s %s: no overlay cell in %s -- unpreconditioned row missing here)\n', era, mine{k}, overlay_sub);
+                end
+            end
             label = strrep(mine{k}, '_', '\_');
             mt = uitab(tg, 'Title', sprintf('%s %s', era, mine{k}));
             % Pass the breakdown CSV so the wall-time panel can split the solve
-            % into inner CG vs restart overhead (2026-08-27); bd_tab stays []
+            % into inner CG vs outer refinement (2026-08-27); bd_tab stays []
             % which SUPPRESSES the separate breakdown figure.
             bd_csv = strrep(res_csv, '_results.csv', '_breakdown.csv');
             plot_irlsq_results(cell_dir, res_csv, bd_csv, ...
-                sprintf('%s   [%s]   %s', label, combo, note), mt, [], TIMING_AGG);
+                sprintf('%s   [%s]', label, combo), mt, [], TIMING_AGG);   % era note NOT in the super-title (2026-09-04, Max)
             any_cell = true;
         end
         if any_cell
@@ -298,7 +522,79 @@ for g = 1:size(tab_groups, 1)
 end
 fprintf('All figures exported to %s\n', export_dir);
 
+%% ========================================================================
+%  Paper panels (2026-09-07, per Oleg): every tile of every tab is ALSO exported
+%  on its own at the footprint of the synthetic-experiment panels (150 x 116 pt,
+%  placed at 0.24\textwidth in the paper), so the FEM2 / Toeplitz figures sit on
+%  ONE line at the same size as Figure 3. Suffix order = tile order in the 1x4
+%  plotters (time, iters, orth, err). Panel titles are stripped (the caption
+%  names the panels); the whole-tab PDFs above remain the provenance record
+%  (super-title with era, cell, aggregation). Font size and tick angle are the
+%  knobs to turn if the six x labels collide at this size.
+% =========================================================================
+PAPER_W_PT = 150; PAPER_H_PT = 210; PAPER_FONT_PT = 7; PAPER_XTICK_ANGLE = 60;   % taller than the 116-pt synthetic panels: the rotated method names need the room (Max, 2026-09-07)
+PAPER_SUFFIX = {'time', 'iters', 'orth', 'err'};
+paper_dir = fullfile(export_dir, 'paper');
+if ~exist(paper_dir, 'dir'), mkdir(paper_dir); end
+old = dir(fullfile(paper_dir, '*.pdf'));
+for i = 1:numel(old), delete(fullfile(paper_dir, old(i).name)); end
+for g = 1:size(tab_groups, 1)
+    tg     = tab_groups{g, 1};
+    prefix = tab_groups{g, 2};
+    for k = 1:numel(tg.Children)
+        tab = tg.Children(k);
+        title_bare = regexprep(tab.Title, '^\s*\[[^\]]*\]\s*', '');
+        slug = lower(regexprep(title_bare, '[^a-zA-Z0-9]+', '_'));
+        slug = regexprep(slug, '^_+|_+$', '');
+        tl = findobj(tab, 'Type', 'tiledlayout');
+        if isempty(tl), continue; end
+        axs = findobj(tl(1), 'Type', 'axes', '-depth', 1);
+        % findobj lists children newest-first; order the tiles left to right.
+        [~, ord] = sort(arrayfun(@(a) a.Layout.Tile, axs));
+        axs = axs(ord);
+        for p = 1:numel(axs)
+            if p <= numel(PAPER_SUFFIX), sfx = PAPER_SUFFIX{p}; else, sfx = sprintf('p%d', p); end
+            export_paper_panel(axs(p), fullfile(paper_dir, sprintf('%s_%s_%s.pdf', prefix, slug, sfx)), ...
+                PAPER_W_PT, PAPER_H_PT, PAPER_FONT_PT, PAPER_XTICK_ANGLE);
+        end
+        fprintf('  Paper panels: %s_%s_{%s}.pdf\n', prefix, slug, strjoin(PAPER_SUFFIX, ','));
+    end
+end
+fprintf('Paper panels exported to %s\n', paper_dir);
+
 % ---- helpers -------------------------------------------------------------
+function export_paper_panel(ax, out_pdf, w_pt, h_pt, font_pt, xtick_angle)
+% Copy ONE tile (plus its legend, if any) into a standalone w x h point figure
+% and export it as a vector PDF. The tab figure itself is left untouched.
+    fig = figure('Visible', 'off', 'Color', 'white', 'Units', 'points', ...
+                 'Position', [50 50 w_pt h_pt]);
+    cleanup = onCleanup(@() close(fig)); %#ok<NASGU>
+    lgd = ax.Legend;
+    if isempty(lgd)
+        h = copyobj(ax, fig);
+    else
+        h = copyobj([ax, lgd], fig);   % legend must travel with its axes
+    end
+    ax2 = h(1);
+    set(ax2, 'Units', 'normalized', 'OuterPosition', [0 0 1 1]);
+    ax2.Title.String = '';                  % the figure caption names the panel
+    ax2.FontSize = font_pt;                 % ticks + labels
+    set([ax2.XLabel, ax2.YLabel], 'FontSize', font_pt);
+    ax2.XAxis.TickLabelRotation = xtick_angle;
+    % A legend inside a 150-pt panel sits on top of the bars; on linear axes
+    % (the wall-time panel) add headroom so the legend clears every bar.
+    if numel(h) > 1 && strcmp(ax2.YScale, 'linear')
+        yl = ax2.YLim; ax2.YLim = [yl(1), yl(1) + 1.6*(yl(2) - yl(1))];
+    elseif strcmp(ax2.YScale, 'linear') && ~isempty(findobj(ax2, 'Type', 'text'))
+        % Bar-top labels (iteration counts) need headroom too, or the tallest
+        % label sits on the frame at paper size (2026-09-18).
+        yl = ax2.YLim; ax2.YLim = [yl(1), yl(1) + 1.15*(yl(2) - yl(1))];
+    end
+    set(findobj(ax2, 'Type', 'text'), 'FontSize', font_pt);   % bar-top counts, FAIL tags
+    if numel(h) > 1, set(h(2), 'FontSize', max(font_pt - 1, 5)); end
+    exportgraphics(fig, out_pdf, 'ContentType', 'vector', 'BackgroundColor', 'white');
+end
+
 function s = era_slug(era)
 % '[OLD 07-11/07-15]' -> 'OLD'.  Keeps PDF prefixes short but unambiguous.
 % warm/cold eras keep their qualifier so the two figure sets export to

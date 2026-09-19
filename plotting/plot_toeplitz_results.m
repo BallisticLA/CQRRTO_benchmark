@@ -43,8 +43,10 @@ w_gray = [0.65 0.65 0.65]; w_ltgray = [0.85 0.85 0.85];
 % "Blendenpik_cold" appears in [NEW 08-05]+ CSVs (warm x_0 is Blendenpik-only and
 % both variants run). "Blendenpik" keeps its bare label because its x_0 policy is
 % era-dependent (old cold campaigns disabled its warm start); the era note carries it.
-alg_csv_order  = {'CQRRT_linop','CQRRT_linop_gemmL','CholQR','CholQR2','sCholQR3_basic','sCholQR3','Blendenpik','Blendenpik_cold','Blendenpik_refine','Blendenpik_cold_refine','unpreconditioned'};
-alg_disp_names = {'CQRRT','CQRRT (GEMM left)','CholQR','CholQR2','sCholQR3 (no blocking)','sCholQR3','Blendenpik','Blendenpik (zero x_0)','Blendenpik + refinement','Blendenpik (zero x_0) + refinement','unpreconditioned'};
+alg_csv_order  = {'CQRRTO_linop','CQRRTO_linop_gemmL','CQRRT_linop','CQRRT_linop_gemmL','CholQR','CholQR2','sCholQR3_basic','sCholQR3','Blendenpik','Blendenpik_cold','Blendenpik_refine','Blendenpik_cold_refine','unpreconditioned'};
+% 2026-09-04 (Max): "refinement" banned from figure text; refined variants take
+% the bare labels (single-shot rows are plot-excluded, names kept for re-enable).
+alg_disp_names = {'CQRRTO','CQRRTO (GEMM left)','CQRRTO','CQRRTO (GEMM left)','CholQR','CholQR2','sCholQR3 (no blocking)','sCholQR3','Blendenpik (single-shot)','Blendenpik (single-shot, zero x_0)','Blendenpik (sketch-and-solve x_0)','Blendenpik','unpreconditioned'};
 
 results_path = fullfile(data_dir, results_csv);
 if ~isfile(results_path), error('plot_toeplitz_results: file not found: %s', results_path); end
@@ -57,10 +59,23 @@ T = readtable(results_path, opts);
 % before anything indexes the table. agg_note lands in the figure title.
 [T, agg_note] = aggregate_runs(T, timing_agg);
 
-% 2026-08-24 (Oleg): paper-figure roster trim. sCholQR3_basic (the no-blocking
-% control) and every Blendenpik row except the stabilized "Blendenpik +
-% refinement" are dropped from the PLOTS only; the CSVs keep all rows.
-alg_plot_exclude = {'sCholQR3_basic', 'Blendenpik', 'Blendenpik_cold', 'Blendenpik_cold_refine'};
+% 2026-08-24 (Oleg): paper-figure roster trim -- PARTIALLY OVERRIDDEN 2026-09-04
+% (Max): the two cold Blendenpik rows are back in the plots. On this noise-free
+% benchmark the warm x_0 (sketch-and-solve on a consistent system) starts AT the
+% u*kappa accuracy floor, so the warm refine row shows no iterative work at all;
+% the cold rows are the ones that exercise the solve and are the honest
+% comparator for published (zero-x_0) Blendenpik. sCholQR3_basic (no-blocking
+% control) and the plain warm "Blendenpik" row (exits at 0 LSQR iterations via
+% the rescaled stop test; ruling on that row still open) stay excluded.
+% Flag the roster change to Oleg rather than letting the figure drift silently.
+% 2026-09-04 (Max): CQRRT_linop_gemmL (RANDLAPACK_GRAM_LEFT=gemm arm) is plot-excluded:
+% the paper's PCholQR model applies the inverse preconditioner by triangular
+% solves, which is the library-default TRSM arm; the GEMM-left arm stays in the
+% merged CSVs for re-enable. Display name is CQRRTO, the paper's algorithm name.
+% 2026-09-15 (Oleg): the sketch-and-solve-started row (Blendenpik_refine) is OUT
+% of the paper figures; the zero-start row is the published algorithm and takes
+% the bare label 'Blendenpik'. The warm-start wall-time slice disappears with it.
+alg_plot_exclude = {'sCholQR3_basic', 'Blendenpik', 'Blendenpik_cold', 'Blendenpik_refine', 'CQRRT_linop_gemmL', 'CQRRTO_linop_gemmL'};  % single-shot rows + warm-start row + GEMM-left arm excluded
 T(ismember(T.algorithm, alg_plot_exclude), :) = [];
 
 algs = T.algorithm;
@@ -92,17 +107,57 @@ na = numel(sel);
 x = 1:na;
 failed = (T.qr_status(sel) ~= 0);
 
+% Mark adaptive-shift rescues on the method labels (2026-08-31, Max; mirrors
+% plot_irlsq_results). chol_retries > 0 means the Cholesky broke down during
+% the build and the adaptive shift rescued it, so the row measures the
+% shift-rescued variant of its algorithm (cholqr_primitive contract caveat).
+% On the prolate Toeplitz cells this is CholQR's normal state: a single
+% unshifted pass at this conditioning cannot succeed. Pre-08-27 CSVs lack the
+% column, hence the guard.
+rescued = false(na, 1);
+if ismember('chol_retries', T.Properties.VariableNames)
+    for a = 1:na
+        if ~failed(a) && T.chol_retries(sel(a)) > 0
+            rescued(a) = true;
+            disp_labels{a} = [disp_labels{a} '*'];
+        end
+    end
+end
+
+% Backward-error termination (2026-09-18): when the era ran with the engine's
+% oracle on (header echoes be_tol > 0), each method is judged from its RECORDED
+% final estimate (be_final <= be_tol), not from the exit code. A method that
+% stopped short of the target is CENSORED: its bars are washed out in every
+% panel via the tick label (a dagger), since the paper exports each tile on its
+% own; a live row that never ran the oracle (LSQR rows) gets a double dagger.
+% Eras without the knob keep the old rendering. See be_censoring.m.
+BE = be_censoring(T, sel, failed, results_path);
+for a = 1:na
+    if BE.censored(a),  disp_labels{a} = [disp_labels{a} '^{\dagger}']; end
+    if BE.no_oracle(a), disp_labels{a} = [disp_labels{a} '^{\ddagger}']; end
+end
+
 % --- Figure / tab ---
-if isempty(main_tab), figure('Position',[100 100 1200 900]); parent = gcf; else parent = main_tab; end
-tl = tiledlayout(parent, 2, 3, 'TileSpacing','compact', 'Padding','compact');
+if isempty(main_tab), figure('Position',[100 100 1700 430]); parent = gcf; else parent = main_tab; end
+% 1x4 layout (2026-09-07, per Oleg): wall-time, inner CG iterations, orthogonality
+% loss, data error, one line, same footprint as the synthetic panels. The
+% peak-memory panel is out of the paper figures (numbers go in the text); it can
+% be re-enabled as a trailing 5th tile. Per-panel paper export lives in run_all.m.
+SHOW_MEMORY = false;
+n_tiles = 4 + SHOW_MEMORY;
+tl = tiledlayout(parent, 1, n_tiles, 'TileSpacing','compact', 'Padding','compact');
 ttl = sprintf('Toeplitz LS Benchmark — %d \\times %d', m_val, n_val);
 if ~isempty(title_suffix), ttl = sprintf('%s — %s', ttl, title_suffix); end
 if ~isempty(agg_note), ttl = sprintf('%s — %s', ttl, agg_note); end
 title(tl, ttl, 'FontWeight','bold', 'FontSize', 13);
 
 % (1) Wall-time: build + warm start (x0 build) + solve, stacked, ms. Since
-% 2026-08-27 the solve splits into inner-CG work vs restart overhead (per-round
-% exact residual recomputation + solver vector work), Max's two-color request:
+% 2026-08-27 the solve splits into inner-CG work vs OUTER REFINEMENT (Algorithm 1
+% lines 5 and 7: recompute the true residual b - Ax, map it to the NE space
+% via R^-T A^T, and apply the correction R^-1 dy). That is not overhead in the
+% sense of waste: it is the refinement step itself, and it costs about one
+% inner iteration per round (same 1 fwd + 1 adj + 2 trsv), which is why the
+% two segments scale with DIFFERENT counters (iterations vs rounds), Max's two-color request:
 % the inner-CG color (orange) MATCHES the iterations panel, so the count a bar
 % carries and the time it cost are the same color. Vermilion = warm-start x0
 % build (real for the Blendenpik + refinement row since the 08-27 redesign).
@@ -128,7 +183,7 @@ b = bar(x, [build_ms, ws_ms, inner_ms, ovh_ms], 'stacked');
 b(1).FaceColor = w_blue;      b(1).DisplayName = 'QR / sketch build';
 b(2).FaceColor = w_vermilion; b(2).DisplayName = 'warm start (x_0 build)';
 b(3).FaceColor = w_orange;    b(3).DisplayName = 'solve: inner CG';
-b(4).FaceColor = w_gray;      b(4).DisplayName = 'solve: restart overhead';
+b(4).FaceColor = w_gray;      b(4).DisplayName = 'solve: outer loop';
 if ~any(ws_ms > 0),  delete(b(2)); end
 if ~any(ovh_ms > 0), b(3).DisplayName = 'solve'; delete(b(4)); end
 ylabel('Time (ms)'); title('Wall-time per algorithm');   % linear scale, starts at 0
@@ -145,7 +200,7 @@ end
 % (2) Accuracy: data rel error (||Tx-b||/||b||) only. The recovery/forward-error
 % bar (||x-xtrue||/||xtrue||, green) was removed 2026-08-24 per Oleg's review;
 % recovery_error stays in the CSVs, just unplotted.
-nexttile(tl, 2);
+nexttile(tl, 4);   % data error: 4th panel (2026-09-07 order)
 dre = T.data_relres(sel);
 dre(failed) = NaN; dre(dre<0) = NaN;
 bar(x, dre, 'FaceColor', w_skyblue); set(gca,'YScale','log');
@@ -163,7 +218,8 @@ xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 % (3) Memory: peak RSS vs analytical (MB). analytical <= 0 means "no analytical
 % model for this row" (-1 sentinel since 2026-08-27; 0 in older CSVs): render as
 % no bar plus an N/A tag rather than a real zero-MB bar.
-nexttile(tl, 3);
+if SHOW_MEMORY
+nexttile(tl, 5);   % optional 5th tile (2026-09-07)
 peak_mb = T.peak_rss_kb(sel)/1024; ana_mb = T.analytical_kb(sel)/1024;
 no_model = (ana_mb <= 0);
 ana_mb(no_model) = NaN;
@@ -179,28 +235,41 @@ for a = 1:na
              'VerticalAlignment','bottom', 'FontWeight','bold', 'Color', w_vermilion);
     end
 end
+end  % SHOW_MEMORY
 
 % (4) Solver work count: inner CG iterations of the shared PCG-NE engine (the
 % recorded quantity for every plotted row since the 08-27 refine redesign; the
 % pre-08-27 "LSQR" titles misnamed it). Orange matches the wall-time panel's
-% inner-CG segment. The warm-start x0 build appears as a base segment in
-% TIME-EQUIVALENT iterations (setup time / per-iteration solve time) so the
-% stacked total stays proportional to the wall-clock bar.
-nexttile(tl, 5);
+% inner-CG segment.
+%
+% NO warm-start segment here (2026-08-28, Max). The x0 build costs TIME but ZERO
+% iterations, so the "time-equivalent iterations" base segment that used to sit
+% under each bar was a manufactured quantity in the wrong units. It belongs in
+% the wall-time panel, where it is a real measured duration, and nowhere else.
+% This panel now shows exactly one thing: iterations actually performed.
+nexttile(tl, 2);   % iterations: 2nd panel (2026-09-04 order)
 iters = T.iterations(sel); iters(failed) = NaN;
-setup_iters = zeros(na, 1);
-if ismember('setup_us', T.Properties.VariableNames)
-    su = max(T.setup_us(sel), 0); sv = T.solve_time_us(sel);
-    setup_iters = su ./ sv .* iters;
-    % A degenerate denominator (solve <= 0 or absurdly small vs setup) would
-    % manufacture an arbitrary bar; suppress the segment instead (2026-08-27).
-    setup_iters(~isfinite(setup_iters) | sv <= 0) = 0;
+bar(x, iters, 'FaceColor', w_orange);
+% Backward-error termination (2026-09-18, see be_censoring.m and the tick-label
+% markers above): censored methods (stopped short of the target) and rows that
+% never ran the oracle are washed out here as well; the bar-top text stays the
+% bare count so it fits at paper size, the dagger on the tick label carries the
+% verdict into every exported tile.
+if BE.active
+    wash = BE.censored | BE.no_oracle;
+    if any(wash)
+        % NaN-mask the full vector so the overlay bars keep the base bars' width
+        % (bar() sizes bars from the spacing of the x values it is given).
+        iters_c = iters; iters_c(~wash) = NaN;
+        hold on;
+        bar(x, iters_c, 'FaceColor', 'w', 'FaceAlpha', 0.6, ...
+            'EdgeColor', w_orange, 'LineStyle', '--', 'LineWidth', 1.2);
+    end
+    title(sprintf('Inner CG iterations to backward-error target (%.1e)', BE.be_tol));
+else
+    title('Inner CG iterations (PCG-NE) to convergence');
 end
-hb = bar(x, [setup_iters, iters], 'stacked');
-hb(1).FaceColor = w_vermilion; hb(1).DisplayName = 'warm start (time-equiv iters)';
-hb(2).FaceColor = w_orange;    hb(2).DisplayName = 'inner CG';
-if any(setup_iters > 0), legend('Location', 'northwest'); end
-ylabel('solver iterations'); title('Inner CG iterations (PCG-NE) to convergence');
+ylabel('solver iterations');
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 for a = 1:na
     if failed(a)
@@ -208,7 +277,7 @@ for a = 1:na
              'FontWeight','bold', 'Color', w_vermilion);
         continue;
     end
-    text(x(a), setup_iters(a) + iters(a), sprintf('%d', iters(a)), 'HorizontalAlignment','center','VerticalAlignment','bottom','FontWeight','bold');
+    text(x(a), iters(a), sprintf('%d', iters(a)), 'HorizontalAlignment','center','VerticalAlignment','bottom','FontWeight','bold');
 end
 
 % (5) Q-orthogonality loss ||R^-T A'A R^-1 - I||_F/sqrt(n). -1 => no preconditioner.
@@ -216,7 +285,7 @@ end
 % warm start, orange = inner CG; comment corrected 2026-08-27, it used to name
 % the wrong color). Dynamic top limit so a kappa(R)^2-regression value above 1
 % pins visibly instead of clipping silently (2026-08-27); floor stays at 1e-16.
-nexttile(tl, 4);
+nexttile(tl, 3);   % orthogonality: 3rd panel (2026-09-07 order)
 orth = T.orth_error(sel); orth(failed) = NaN; orth(orth<0) = NaN;
 ymax = 1e1;
 finite_orth = orth(isfinite(orth));
@@ -232,5 +301,9 @@ for a = 1:na
         text(x(a), yl(2)*0.5, 'N/A', 'HorizontalAlignment','center','FontWeight','bold','Color',w_gray);
     end
 end
+
+% Footnote for the asterisked labels REMOVED per Max (2026-09-04): the asterisk
+% stays on the x labels; its meaning (adaptive-shift-rescued row) is documented
+% in run_all.m's era note and the dev log rather than on the figure.
 
 end

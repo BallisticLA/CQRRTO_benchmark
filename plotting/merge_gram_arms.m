@@ -35,7 +35,7 @@ if ~exist(out_dir, 'dir'), mkdir(out_dir); end
 merged_csv = merge_pair(fullfile(arm_t, ft), fullfile(arm_g, fg), out_dir);
 
 % Sidecars: same-stem *_breakdown.csv and *_rounds.csv, when both arms have them.
-for suffix = {'breakdown', 'rounds'}
+for suffix = {'breakdown', 'rounds', 'backward_error'}
     pt = regexprep(pattern, 'results', suffix{1});
     st = newest_csv(arm_t, pt); sg = newest_csv(arm_g, pt);
     if ~isempty(st) && ~isempty(sg)
@@ -68,7 +68,11 @@ function out_name = merge_pair(trsm_path, gemm_path, out_dir)
     keep = strings(0, 1);
     for i = 1:numel(g_lines)
         L = g_lines(i);
-        if startsWith(L, 'CQRRT_linop,')
+        % The CSV label is CQRRTO_linop since the 2026-09-18 rename; eras before it
+        % wrote CQRRT_linop. Both are recognised, each renamed with its own suffix.
+        if startsWith(L, 'CQRRTO_linop,')
+            keep(end+1, 1) = "CQRRTO_linop_gemmL," + extractAfter(L, 'CQRRTO_linop,'); %#ok<AGROW>
+        elseif startsWith(L, 'CQRRT_linop,')
             keep(end+1, 1) = "CQRRT_linop_gemmL," + extractAfter(L, 'CQRRT_linop,'); %#ok<AGROW>
         end
     end

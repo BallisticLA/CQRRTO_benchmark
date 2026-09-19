@@ -1,4 +1,4 @@
-# QLCQRRT_benchmark
+# CQRRTO_benchmark
 
 MATLAB post-processing companion for the Q-less randomized QR (CQRRT) least-squares work in
 [RandLAPACK](https://github.com/BallisticLA/RandLAPACK): campaign plotting for the FEM2

@@ -65,6 +65,29 @@ for a = 1:numel(algs)
         keep(a) = rows(1);            % all failed: keep one row, visibly failed
         continue;
     end
+    % Backward-error termination (2026-09-18): the min-total-time pick below is
+    % ~95% QR-build jitter, so if the runs of one method disagree on HOW they
+    % ended (e.g. 'be' in two runs, 'floor' in one, for a method sitting near the
+    % target) the displayed verdict would be a coin flip. Restrict the candidates
+    % to the modal stop_reason first (preferring 'be' on a tie) and say so.
+    if ismember('stop_reason', T.Properties.VariableNames) && numel(succ) > 1
+        rs = string(T.stop_reason(succ)); rs = rs(:);
+        [u, ~, j] = unique(rs);
+        if numel(u) > 1
+            cnt = accumarray(j, 1);
+            modal = u(cnt == max(cnt));
+            if any(modal == "be"), modal = "be"; else, modal = modal(1); end
+            warning('aggregate_runs: %s runs disagree on stop_reason (%s); keeping the %s runs', ...
+                    algs{a}, strjoin(cellstr(rs'), '/'), modal);
+            if strcmp(mode, 'mean')
+                error('aggregate_runs: mode ''mean'' cannot average runs with different stop_reason (%s)', algs{a});
+            end
+            succ = succ(rs == modal);
+        end
+        if strcmp(mode, 'mean') && any(rs == "be")
+            error('aggregate_runs: mode ''mean'' is not defined for an oracle-terminated era (stop_reason ''be''); use ''best''');
+        end
+    end
     % Best-total includes the warm-start setup slice (2026-08-27; before, a warm
     % row's x0 build did not count against its run selection).
     total = T.qr_time_us(succ) + T.(solve_col)(succ);
