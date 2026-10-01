@@ -34,7 +34,7 @@ if nargin < 5 || isempty(timing_agg), timing_agg = 'best'; end
 % Wong colorblind-friendly palette (matches the App-1 plotter).
 w_blue = [0 114 178]/255;  w_orange = [230 159 0]/255;  w_skyblue = [86 180 233]/255;
 w_green = [0 158 115]/255; w_vermilion = [213 94 0]/255; w_purple = [204 121 167]/255;
-w_gray = [0.65 0.65 0.65]; w_ltgray = [0.85 0.85 0.85];
+w_gray = [0.65 0.65 0.65];
 
 % "Blendenpik_refine"/"Blendenpik_cold_refine" appear in [NEW 08-09]+ CSVs: Blendenpik's
 % OWN preconditioner and answer handed to our restarted-PCG refinement, so the published
@@ -46,7 +46,7 @@ w_gray = [0.65 0.65 0.65]; w_ltgray = [0.85 0.85 0.85];
 alg_csv_order  = {'CQRRTO_linop','CQRRTO_linop_gemmL','CQRRT_linop','CQRRT_linop_gemmL','CholQR','CholQR2','sCholQR3_basic','sCholQR3','Blendenpik','Blendenpik_cold','Blendenpik_refine','Blendenpik_cold_refine','unpreconditioned'};
 % 2026-09-04 (Max): "refinement" banned from figure text; refined variants take
 % the bare labels (single-shot rows are plot-excluded, names kept for re-enable).
-alg_disp_names = {'CQRRTO','CQRRTO (GEMM left)','CQRRTO','CQRRTO (GEMM left)','CholQR','CholQR2','sCholQR3 (no blocking)','sCholQR3','Blendenpik (single-shot)','Blendenpik (single-shot, zero x_0)','Blendenpik (sketch-and-solve x_0)','Blendenpik','unpreconditioned'};
+alg_disp_names = {'CQRRTO','CQRRTO (GEMM left)','CQRRTO','CQRRTO (GEMM left)','CholQR','CholQR2','sCholQR3 (no blocking)','sCholQR3','Blendenpik (single-shot)','Blendenpik (single-shot, zero x_0)','Blendenpik (sketch-and-solve x_0)','Blendenpik','unprecond'};   % 'unprecond' (2026-09-27, Oleg): the CSV name stays 'unpreconditioned', only the label is short
 
 results_path = fullfile(data_dir, results_csv);
 if ~isfile(results_path), error('plot_toeplitz_results: file not found: %s', results_path); end
@@ -57,6 +57,11 @@ T = readtable(results_path, opts);
 
 % Multi-run CSVs (num_runs > 1, 2026-08-05): collapse to one row per method
 % before anything indexes the table. agg_note lands in the figure title.
+% Join the KW sidecar BEFORE aggregate_runs so the kept run carries its own
+% value (same rule as attach_data_error in plot_irlsq_results.m). Joining after
+% aggregation happens to work for timing_agg='best', which preserves the run
+% index, but would silently empty the panel under 'mean', where run is set to -1.
+T = attach_kw_backward_error(T, strrep(results_path, '_results.csv', '_backward_error.csv'));
 [T, agg_note] = aggregate_runs(T, timing_agg);
 
 % 2026-08-24 (Oleg): paper-figure roster trim -- PARTIALLY OVERRIDDEN 2026-09-04
@@ -118,8 +123,7 @@ rescued = false(na, 1);
 if ismember('chol_retries', T.Properties.VariableNames)
     for a = 1:na
         if ~failed(a) && T.chol_retries(sel(a)) > 0
-            rescued(a) = true;
-            disp_labels{a} = [disp_labels{a} '*'];
+            rescued(a) = true;   % no label marker since 2026-09-27: the paper's tables carry the retry counts
         end
     end
 end
@@ -132,19 +136,25 @@ end
 % own; a live row that never ran the oracle (LSQR rows) gets a double dagger.
 % Eras without the knob keep the old rendering. See be_censoring.m.
 BE = be_censoring(T, sel, failed, results_path);
-for a = 1:na
-    if BE.censored(a),  disp_labels{a} = [disp_labels{a} '^{\dagger}']; end
-    if BE.no_oracle(a), disp_labels{a} = [disp_labels{a} '^{\ddagger}']; end
-end
+% Dagger / double-dagger label suffixes REMOVED (2026-09-27, Max): the censored
+% row is still washed out in the iteration panel below (BE.censored), and the
+% paper's caption and Toeplitz table carry the verdict in words.
+
 
 % --- Figure / tab ---
-if isempty(main_tab), figure('Position',[100 100 1700 430]); parent = gcf; else parent = main_tab; end
-% 1x4 layout (2026-09-07, per Oleg): wall-time, inner CG iterations, orthogonality
-% loss, data error, one line, same footprint as the synthetic panels. The
-% peak-memory panel is out of the paper figures (numbers go in the text); it can
-% be re-enabled as a trailing 5th tile. Per-panel paper export lives in run_all.m.
-SHOW_MEMORY = false;
-n_tiles = 4 + SHOW_MEMORY;
+if isempty(main_tab), figure('Position',[100 100 2050 430]); parent = gcf; else parent = main_tab; end
+% 1x5 layout (1x4 from 2026-09-07 per Oleg): wall-time, inner CG iterations,
+% orthogonality loss, data error, KW backward error; one line, same footprint as
+% the synthetic panels. The peak-memory panel was retired from the paper figures
+% on 2026-09-07 (its numbers go in the text) and its disabled code was removed
+% 2026-09-21; git history has it. Per-panel paper export lives in run_all.m,
+% whose PAPER_SUFFIX list must match the tile order.
+% 2026-09-21 (Max): 5th tile = sketched Karlson-Walden backward error, the
+% quantity Epperly's stopping rule targets. Read from the *_backward_error.csv
+% sidecar, which is written whether or not the oracle drove termination, so an
+% era run with be_tol_mult=0 is comparable here to one run with it on.
+SHOW_KW = true;
+n_tiles = 4 + SHOW_KW;
 tl = tiledlayout(parent, 1, n_tiles, 'TileSpacing','compact', 'Padding','compact');
 ttl = sprintf('Toeplitz LS Benchmark — %d \\times %d', m_val, n_val);
 if ~isempty(title_suffix), ttl = sprintf('%s — %s', ttl, title_suffix); end
@@ -179,14 +189,18 @@ else
     inner_ms = solve_ms; ovh_ms = zeros(na, 1);
 end
 build_ms(failed) = 0; inner_ms(failed) = 0; ovh_ms(failed) = 0; ws_ms(failed) = 0;
+% Plotted in SECONDS since 2026-09-27 (same reason as plot_irlsq_results: the
+% exponent label of a millisecond axis does not survive the 110-pt paper panel).
+% The vectors keep their _ms names; every use below is in seconds.
+build_ms = build_ms/1e3; ws_ms = ws_ms/1e3; inner_ms = inner_ms/1e3; ovh_ms = ovh_ms/1e3;
 b = bar(x, [build_ms, ws_ms, inner_ms, ovh_ms], 'stacked');
-b(1).FaceColor = w_blue;      b(1).DisplayName = 'QR / sketch build';
+b(1).FaceColor = w_blue;      b(1).DisplayName = 'build';        % short legend entries for the four-across paper row (2026-09-27)
 b(2).FaceColor = w_vermilion; b(2).DisplayName = 'warm start (x_0 build)';
-b(3).FaceColor = w_orange;    b(3).DisplayName = 'solve: inner CG';
-b(4).FaceColor = w_gray;      b(4).DisplayName = 'solve: outer loop';
+b(3).FaceColor = w_orange;    b(3).DisplayName = 'inner CG';
+b(4).FaceColor = w_gray;      b(4).DisplayName = 'outer loop';
 if ~any(ws_ms > 0),  delete(b(2)); end
 if ~any(ovh_ms > 0), b(3).DisplayName = 'solve'; delete(b(4)); end
-ylabel('Time (ms)'); title('Wall-time per algorithm');   % linear scale, starts at 0
+ylabel('Time (s)'); title('Wall-time per algorithm');   % linear scale, starts at 0
 tot_ms = build_ms + ws_ms + inner_ms + ovh_ms;
 ylim([0 max(1, 1.15*max(tot_ms))]);
 xticks(x); xticklabels(disp_labels); xtickangle(35); legend('Location','northeast'); grid on; box on;
@@ -215,28 +229,40 @@ end
 ylabel('||Tx-b||/||b||'); title('Data error');
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 
+% (4b) Sketched Karlson-Walden backward error -- the criterion Epperly's rule
+% stops on. Deliberately NOT the data error: a run can meet this target while its
+% residual is still orders above the noise floor.
+if SHOW_KW
+nexttile(tl, 5);
+kw = T.be_kw_measured(sel);
+kw(failed) = NaN; kw(kw < 0) = NaN;
+bar(x, kw, 'FaceColor', w_purple); set(gca,'YScale','log');
+fin = kw(isfinite(kw) & kw > 0);
+if ~isempty(fin)
+    ylim([10^(floor(log10(min(fin))) - 1), 10^ceil(log10(max(fin)))]);
+else
+    ylim([1e-18 1e0]);
+end
+if isfield(BE, 'active') && BE.active && BE.be_tol > 0
+    hold on; yline(BE.be_tol, '--', sprintf('target %.1e', BE.be_tol), ...
+                   'Color', w_vermilion, 'LineWidth', 1.1, ...
+                   'LabelHorizontalAlignment','left'); hold off;
+end
+ylabel('sketched KW backward error / ||A||_F');
+title('Backward error (Karlson-Walden)');
+xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
+yl = ylim;
+for a = 1:numel(x)
+    if isnan(kw(a))
+        text(x(a), yl(2)*0.9, 'n/a', 'HorizontalAlignment','center', ...
+             'FontWeight','bold', 'Color', w_vermilion);
+    end
+end
+end  % SHOW_KW
+
 % (3) Memory: peak RSS vs analytical (MB). analytical <= 0 means "no analytical
 % model for this row" (-1 sentinel since 2026-08-27; 0 in older CSVs): render as
 % no bar plus an N/A tag rather than a real zero-MB bar.
-if SHOW_MEMORY
-nexttile(tl, 5);   % optional 5th tile (2026-09-07)
-peak_mb = T.peak_rss_kb(sel)/1024; ana_mb = T.analytical_kb(sel)/1024;
-no_model = (ana_mb <= 0);
-ana_mb(no_model) = NaN;
-peak_mb(failed) = NaN; ana_mb(failed) = NaN;
-b = bar(x, [peak_mb, ana_mb], 'grouped');
-b(1).FaceColor = w_purple; b(1).DisplayName = 'Peak RSS';
-b(2).FaceColor = w_ltgray; b(2).DisplayName = 'Analytical';
-ylabel('Memory (MB)'); title('Peak vs predicted memory');
-xticks(x); xticklabels(disp_labels); xtickangle(35); legend('Location','northwest'); grid on; box on;
-for a = 1:na
-    if failed(a)
-        text(x(a), 0.02*max([peak_mb; 1], [], 'omitnan'), 'FAIL', 'HorizontalAlignment','center', ...
-             'VerticalAlignment','bottom', 'FontWeight','bold', 'Color', w_vermilion);
-    end
-end
-end  % SHOW_MEMORY
-
 % (4) Solver work count: inner CG iterations of the shared PCG-NE engine (the
 % recorded quantity for every plotted row since the 08-27 refine redesign; the
 % pre-08-27 "LSQR" titles misnamed it). Orange matches the wall-time panel's
@@ -269,7 +295,7 @@ if BE.active
 else
     title('Inner CG iterations (PCG-NE) to convergence');
 end
-ylabel('solver iterations');
+ylabel('Inner CG iterations');   % same wording as the FEM panel; capital I (Max, 2026-09-27)
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 for a = 1:na
     if failed(a)

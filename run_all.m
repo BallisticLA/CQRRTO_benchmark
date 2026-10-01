@@ -174,8 +174,6 @@ tab_groups = {};   % {tabgroup handle, export prefix}
 % table (gemm-arm CQRRT_linop rows renamed CQRRT_linop_gemmL) happens HERE at
 % plot time via plotting/merge_gram_arms.m (2026-08-27; the old hand-built
 % *_both trees were an unaudited manual step). Flat single-arm cells still work.
-% Retired era tag kept (unused) so re-enabling the 0812 comparison is one line
-% in TOEP_CAMPAIGNS / FEM2_CAMPAIGNS rather than an archaeology exercise.
 % Retired era tags kept (unused) so re-enabling a comparison is one line in
 % TOEP_CAMPAIGNS / FEM2_CAMPAIGNS rather than an archaeology exercise.
 ERA_D2 = '[0812 d2]';  %#ok<NASGU>
@@ -228,18 +226,13 @@ NOTE_N11 = 'NOISY RHS b = A*x_true + noise, noise_level=1e-11 (all earlier FEM2 
 % (trsm_left/gemm_left merged at plot time). [0902 ns1] stays plotted for the
 % side-by-side; drop it once the paper's Section 5.2.2 numbers have moved.
 ERA_G1  = '[0914 g1]';
-% [0917 f16] (FLOOR PROBE, both benchmarks): the 0914_g1 / 0914_be1 configuration
-% with the inner absolute-residual guard lowered from eps^0.85 (~4.9e-14) to
-% 1e-16, i.e. just below unit roundoff, so the guard should barely bind and the
-% stagnation-confirmation rounds should cost close to what the pre-09-14 Toeplitz
-% eras paid. Measures how much of the 0902 -> 0914 iteration change depends on
-% the floor's value (Max, 2026-09-17). Diagnostic, not the plotted record.
-ERA_F16 = '[0917 f16]';
-% [0917 f0] (FEM, FLOOR OFF): 0914_be1 with the absolute floor disabled
-% (ir_inner_tol=0). Every FEM era so far ran with eps^0.85 while the paper's
-% Toeplitz era 0902_ns1 ran without; this is the FEM record if Oleg rules that
-% no absolute floor belongs in the inner CG (2026-09-17).
-ERA_F0  = '[0917 f0]';
+% RETIRED 2026-09-21: the 0917 probe eras [0917 f16] (floor lowered to 1e-16)
+% and [0917 f0] (floor off) were generated but NEVER RAN -- their cells were
+% cancelled before execution and no results tree exists for either. Both
+% questions have since been answered by eras that did run: [0921 f16] is the
+% floor-1e-16 configuration with the outer tolerance matched across benchmarks,
+% and [0919 kw1] runs with the floor off. Their declarations, notes and campaign
+% rows are removed rather than left to look like plottable history.
 % [0919 kw1] (BACKWARD-ERROR TERMINATION, both benchmarks): the 0914_g1 / 0914_be1
 % configuration with the engine's outer success test replaced by Epperly's
 % step-two criterion: a run ends once the sketched Karlson-Walden backward error
@@ -250,22 +243,40 @@ ERA_F0  = '[0917 f0]';
 % the unpreconditioned row themselves (mask 247) instead of overlaying 0915_up1,
 % whose CSVs predate the new be_kw / t_be_us columns. Decided with Oleg
 % 2026-09-18 (report randnla/reports/2026-09-18-emn24-solver-stopping-rules.md).
-ERA_KW1 = '[0919 kw1]';
+ERA_KW1 = '[0919 kw1 Epperly-BE]';
 NOTE_KW1_T = 'BACKWARD-ERROR TERMINATION (sketched Karlson-Walden <= sqrt(n) u ||A||_F, be_tol_mult=1; inner floor OFF; 0914_g1 otherwise); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem, non-exclusive); rows not marked be are censored; timings citable within-era';
 NOTE_KW1_F = 'BACKWARD-ERROR TERMINATION (sketched Karlson-Walden <= sqrt(n) u ||A||_F, be_tol_mult=1; inner floor OFF; 0914_be1 otherwise); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (bigmem SPR, non-exclusive); rows not marked be are censored; timings citable within-era';
-NOTE_F16_T ='INNER GUARD FLOOR 1e-16 (probe; 0914_g1 otherwise: inner_abs_tol passed to the Toeplitz driver); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
-NOTE_F16_F = 'INNER GUARD FLOOR 1e-16 (probe; 0914_be1 otherwise: ir_inner_tol=1e-16); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (long-bigmem SPR, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
-NOTE_F0_F = 'INNER GUARD FLOOR OFF (ir_inner_tol=0; 0914_be1 otherwise); NOISY RHS noise_level=1e-11; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem SPR, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
+% [0921 f16] (OLD RULE, MATCHED FLOOR, both benchmarks; 2026-09-21): the direct
+% companion to [0919 kw1]. Same binary (commit fed2f9a, the kw1 install root), same
+% cells, same node; the ONLY differences are the three stopping knobs. The
+% backward-error oracle is OFF (be_tol_mult=0, which is the pre-BE code path
+% bit-for-bit), the inner absolute floor is 1e-16 (effectively zero) instead of
+% eps^0.85, and the outer tolerance is 1e-12 in BOTH benchmarks instead of
+% Toeplitz 1e-12 / FEM 10*eps. Purpose (Max, 2026-09-20): [0919 kw1] collapses the
+% three preconditioned Q-less methods to 1-2 iterations on FEM and was judged to
+% change the story too aggressively; this era shows what the old rule says when
+% both benchmarks are configured identically. NOTE the outer tolerance is INERT in
+% both benchmarks -- it is tested against the true LS relative residual, which
+% floors at ~1e-10 against the 1e-11 noise, so no row has ever met it; the floor
+% and the stagnation exit are what actually govern the counts here.
+ERA_F16B = '[0921 f16 old-rule]';
+NOTE_F16B_T = 'OLD STOPPING RULE, MATCHED (inner absolute floor 1e-16, outer tol 1e-12, be_tol_mult=0 = oracle off); companion to [0919 kw1], same binary/cells/node; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem SPR, non-exclusive); timings citable within-era';
+NOTE_F16B_F = 'OLD STOPPING RULE, MATCHED (inner absolute floor 1e-16, outer tol 1e-12, be_tol_mult=0 = oracle off); companion to [0919 kw1], same binary/cells/node; NOISY RHS noise_level=1e-11; unpreconditioned row runs IN-era (mask 247); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (long-bigmem SPR, non-exclusive); timings citable within-era';
+
 NOTE_G1 = 'INNER GUARD FIX (inner_abs_tol passed to the Toeplitz driver; probe cycles no longer inflate inner counts); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem srm1526, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
 
 % ONE ERA PER BENCHMARK (2026-08-31, Max). The b1 rows are commented out, not
 % deleted: b1 is the accuracy-grade replication and its data is retained under
 % results/, so re-enabling the comparison is uncommenting one line.
+% 2026-09-21 (Max): STOPPING-RULE COMPARISON. Only the two eras under comparison
+% are active, so this run opens two Toeplitz windows and two FEM windows rather
+% than eight. The other rows are commented out, not deleted -- uncomment to
+% restore the previous side-by-side.
 TOEP_CAMPAIGNS = {
-    'toeplitz_ls_0914_g1_pcg_ne',  ERA_G1,  NOTE_G1,  {'small','fixedm','middle','large'},  false
-    'toeplitz_ls_0919_kw1_pcg_ne', ERA_KW1, NOTE_KW1_T, {'small','fixedm','middle','large'}, false
-    'toeplitz_ls_0917_f16_pcg_ne', ERA_F16, NOTE_F16_T, {'small','fixedm','middle','large'}, false
-    'toeplitz_ls_0902_ns1_pcg_ne', ERA_NS1, NOTE_NS1, {'small','fixedm','middle','large'},  false
+    'toeplitz_ls_0919_kw1_pcg_ne', ERA_KW1,  NOTE_KW1_T,  {'small','fixedm','middle','large'}, false
+    'toeplitz_ls_0921_f16_pcg_ne', ERA_F16B, NOTE_F16B_T, {'small','fixedm','middle','large'}, false
+%   'toeplitz_ls_0914_g1_pcg_ne',  ERA_G1,  NOTE_G1,  {'small','fixedm','middle','large'},  false
+%   'toeplitz_ls_0902_ns1_pcg_ne', ERA_NS1, NOTE_NS1, {'small','fixedm','middle','large'},  false
 %   'toeplitz_ls_0831_a1_pcg_ne',  ERA_A3, NOTE_A3, {'small','fixedm','middle','large'},  false
 %   'toeplitz_ls_0829_a1_pcg_ne',  ERA_A2, NOTE_A2, {'small','fixedm','middle','large'},  false
 %   'toeplitz_ls_0829_b1_pcg_ne',  ERA_B1, NOTE_B1, {'small','fixedm','middle','large'},  false
@@ -289,12 +300,14 @@ OVERLAY_UP1 = 'irlsq_reg_0915_up1';
 % FEM2 IR-LSQ campaigns: {data subdir, era tag, note, combos to look for, overlay}
 %   overlay = '' or the results subdir of a second era whose rows are appended
 %   per cell at plot time (see OVERLAY_UP1 above and plotting/merge_overlay_rows.m).
+% 2026-09-21 (Max): STOPPING-RULE COMPARISON -- see the note on TOEP_CAMPAIGNS.
+% Both active eras ran mask 247, so the unpreconditioned row is in-era and neither
+% takes the 0915_up1 overlay.
 FEM2_CAMPAIGNS = {
-    'irlsq_reg_0914_be1',      ERA_BE1, NOTE_BE1, {'dd'}, OVERLAY_UP1
-    'irlsq_reg_0919_kw1',      ERA_KW1, NOTE_KW1_F, {'dd'}, ''    % unpreconditioned row runs IN this era (mask 247): the up1 overlay predates the be_kw/t_be_us columns and merge_overlay_rows requires identical columns
-    'irlsq_reg_0917_f16',      ERA_F16, NOTE_F16_F, {'dd'}, OVERLAY_UP1
-    'irlsq_reg_0917_f0',       ERA_F0,  NOTE_F0_F,  {'dd'}, OVERLAY_UP1
-    'irlsq_reg_0911_n11',      ERA_N11, NOTE_N11, {'dd'}, OVERLAY_UP1
+    'irlsq_reg_0919_kw1',      ERA_KW1,  NOTE_KW1_F,  {'dd'}, ''
+    'irlsq_reg_0921_f16',      ERA_F16B, NOTE_F16B_F, {'dd'}, ''
+%   'irlsq_reg_0914_be1',      ERA_BE1, NOTE_BE1, {'dd'}, OVERLAY_UP1
+%   'irlsq_reg_0911_n11',      ERA_N11, NOTE_N11, {'dd'}, OVERLAY_UP1
 %   'irlsq_reg_0902_ns1',      ERA_NS1, NOTE_NS1, {'dd'}, ''
 %   'irlsq_reg_0831_a1',       ERA_A3, NOTE_A3, {'dd'}, ''
 %   'irlsq_reg_0829_a1',       ERA_A2, NOTE_A2, {'dd'}, ''
@@ -349,7 +362,7 @@ for cc = 1:size(TOEP_CAMPAIGNS, 1)
     end
 
     fig = figure('Name', sprintf('%s Toeplitz LS -- Q-less QR right preconditioners  (%s)', era, note), ...
-                 'Position', [80 + 25*cc, 80, 1250, 900]);
+                 'Position', [80 + 25*cc, 80, 1550, 900]);   % 1550: 5 tiles since 2026-09-21 (was 1250 for 4)
     tg = uitabgroup(fig);
     if want_sweep
         % GATED (2026-08-27 audit): plot_toeplitz_sweep predates the 08-24 roster
@@ -440,7 +453,7 @@ for cc = 1:size(FEM2_CAMPAIGNS, 1)
         mine = cells(endsWith(cells, ['_' combo]));
         if isempty(mine), continue; end
         fig = figure('Name', sprintf('%s FEM2 App 1 -- IR-LSQ (reg) -- %s  (%s)', era, combo, note), ...
-                     'Position', [60 + 25*c + 40*cc, 60, 1150, 900]);
+                     'Position', [60 + 25*c + 40*cc, 60, 1450, 900]);   % 1450: 5 tiles since 2026-09-21 (was 1150 for 4)
         tg = uitabgroup(fig);
         any_cell = false;
         for k = 1:numel(mine)
@@ -526,14 +539,17 @@ fprintf('All figures exported to %s\n', export_dir);
 %  Paper panels (2026-09-07, per Oleg): every tile of every tab is ALSO exported
 %  on its own at the footprint of the synthetic-experiment panels (150 x 116 pt,
 %  placed at 0.24\textwidth in the paper), so the FEM2 / Toeplitz figures sit on
-%  ONE line at the same size as Figure 3. Suffix order = tile order in the 1x4
-%  plotters (time, iters, orth, err). Panel titles are stripped (the caption
+%  ONE line at the same size as Figure 3. Suffix order = tile order in the
+%  plotters (time, iters, orth, err, bwd); the list must be extended whenever a
+%  tile is added, or the new panel exports under a generic p<N> name. It assumes
+%  the optional SHOW_MEMORY / SHOW_FORWARD tiles are off, which they are.
+%  Panel titles are stripped (the caption
 %  names the panels); the whole-tab PDFs above remain the provenance record
 %  (super-title with era, cell, aggregation). Font size and tick angle are the
 %  knobs to turn if the six x labels collide at this size.
 % =========================================================================
-PAPER_W_PT = 150; PAPER_H_PT = 210; PAPER_FONT_PT = 7; PAPER_XTICK_ANGLE = 60;   % taller than the 116-pt synthetic panels: the rotated method names need the room (Max, 2026-09-07)
-PAPER_SUFFIX = {'time', 'iters', 'orth', 'err'};
+PAPER_W_PT = 110; PAPER_H_PT = 170; PAPER_FONT_PT = 10; PAPER_XTICK_ANGLE = 90;   % 2026-09-27: the body figure is one row of four panels (Oleg), each printed at 0.235\textwidth = 87 pt in the SIAM class, so 10 pt text in a 110-pt panel prints at about 8 pt (Max: larger figure text); vertical tick labels keep the six method names apart. Was 150 x 210 pt, 7 pt, 60 degrees (2026-09-07).
+PAPER_SUFFIX = {'time', 'iters', 'orth', 'err', 'bwd'};   % 'bwd' = KW backward error (2026-09-21)
 paper_dir = fullfile(export_dir, 'paper');
 if ~exist(paper_dir, 'dir'), mkdir(paper_dir); end
 old = dir(fullfile(paper_dir, '*.pdf'));
@@ -567,32 +583,56 @@ function export_paper_panel(ax, out_pdf, w_pt, h_pt, font_pt, xtick_angle)
 % Copy ONE tile (plus its legend, if any) into a standalone w x h point figure
 % and export it as a vector PDF. The tab figure itself is left untouched.
     fig = figure('Visible', 'off', 'Color', 'white', 'Units', 'points', ...
-                 'Position', [50 50 w_pt h_pt]);
+                 'Position', [50 50 w_pt h_pt], ...
+                 'PaperUnits', 'points', 'PaperSize', [w_pt h_pt], ...
+                 'PaperPositionMode', 'manual', 'PaperPosition', [0 0 w_pt h_pt]);
     cleanup = onCleanup(@() close(fig)); %#ok<NASGU>
-    lgd = ax.Legend;
-    if isempty(lgd)
-        h = copyobj(ax, fig);
-    else
-        h = copyobj([ax, lgd], fig);   % legend must travel with its axes
-    end
+    % No legend in the paper panels (2026-09-27, Max): at 10 pt a three-entry
+    % legend is as wide as the 70-pt plot box and covers the y axis. The
+    % figure caption names the stacked segments bottom to top instead. The
+    % interactive tab figures keep their legends.
+    h = copyobj(ax, fig);
     ax2 = h(1);
-    set(ax2, 'Units', 'normalized', 'OuterPosition', [0 0 1 1]);
+    % Fixed plot box (2026-09-27, Max): every panel gets the same axes rectangle
+    % inside the same w x h page, so the exported PDFs share one size and the
+    % panels in the paper share one height and one baseline. OuterPosition
+    % [0 0 1 1] let the plot box shrink with the length of the tick labels.
+    % Margins: left = y tick labels + y label, bottom = vertical x tick labels.
+    lm = 36; bm = 60; rm = 4; tm = 6;
+    set(ax2, 'Units', 'points', 'Position', [lm, bm, w_pt - lm - rm, h_pt - bm - tm]);
     ax2.Title.String = '';                  % the figure caption names the panel
+    % Bar-top iteration counts REMOVED from the paper panels (2026-09-27, Max):
+    % the paper's tables carry the counts. FAIL and N/A tags are kept.
+    tx = findobj(ax2, 'Type', 'text');
+    for t = reshape(tx, 1, [])
+        str = t.String; if iscell(str), str = strjoin(str, ' '); end
+        if ~isempty(regexp(strtrim(char(str)), '^\d+$', 'once')), delete(t); end
+    end
     ax2.FontSize = font_pt;                 % ticks + labels
-    set([ax2.XLabel, ax2.YLabel], 'FontSize', font_pt);
+    set([ax2.XLabel, ax2.YLabel], 'FontSize', font_pt - 1);   % one point below the ticks so the y label clears the plot-box height (Max, 2026-09-27)
     ax2.XAxis.TickLabelRotation = xtick_angle;
-    % A legend inside a 150-pt panel sits on top of the bars; on linear axes
-    % (the wall-time panel) add headroom so the legend clears every bar.
-    if numel(h) > 1 && strcmp(ax2.YScale, 'linear')
-        yl = ax2.YLim; ax2.YLim = [yl(1), yl(1) + 1.6*(yl(2) - yl(1))];
+    % The wall-time panel had 1.6x headroom for its legend; without the legend
+    % it needs none, so the linear axes are re-tightened to the bars. The
+    % plotters set ylim with legend headroom (1.35x / 1.15x); undo it here.
+    if strcmp(ax2.YScale, 'linear') && isempty(findobj(ax2, 'Type', 'text'))
+        % Wall-time panel: fit the axis to the tallest stacked bar plus 8%.
+        % YLimMode 'auto' ended the axis at a round tick below the bar top.
+        bars = findobj(ax2, 'Type', 'bar');
+        if ~isempty(bars)
+            tops = arrayfun(@(b) max(b.YEndPoints(:)), bars);
+            ax2.YLim = [0, 1.08*max(tops)];
+        end
     elseif strcmp(ax2.YScale, 'linear') && ~isempty(findobj(ax2, 'Type', 'text'))
         % Bar-top labels (iteration counts) need headroom too, or the tallest
         % label sits on the frame at paper size (2026-09-18).
         yl = ax2.YLim; ax2.YLim = [yl(1), yl(1) + 1.15*(yl(2) - yl(1))];
     end
     set(findobj(ax2, 'Type', 'text'), 'FontSize', font_pt);   % bar-top counts, FAIL tags
-    if numel(h) > 1, set(h(2), 'FontSize', max(font_pt - 1, 5)); end
-    exportgraphics(fig, out_pdf, 'ContentType', 'vector', 'BackgroundColor', 'white');
+    % print, not exportgraphics (2026-09-27): exportgraphics crops each panel to
+    % its own content, so panels with longer labels came out at different sizes
+    % and LaTeX scaled them differently. print honours PaperPosition: one
+    % w x h page per panel, uncropped.
+    print(fig, out_pdf, '-dpdf', '-painters');
 end
 
 function s = era_slug(era)

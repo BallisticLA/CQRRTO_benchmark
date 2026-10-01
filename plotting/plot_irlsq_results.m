@@ -54,7 +54,6 @@ w_green     = [  0 158 115] / 255;
 w_vermilion = [213  94   0] / 255;
 w_purple    = [204 121 167] / 255;
 w_gray      = [0.65 0.65 0.65];
-w_ltgray    = [0.85 0.85 0.85];
 
 % =========================================================================
 %  Algorithm display order.  GEQP3-stabilized variant (CQRRT_linop_stb) is
@@ -74,7 +73,7 @@ alg_csv_order  = {'CQRRTO_linop','CQRRTO_linop_gemmL','CQRRT_linop','CQRRT_linop
 % plotted Blendenpik rows are BOTH the refined (shared-engine) variants, so they
 % take the bare labels; the single-shot rows are excluded from plots and keep
 % distinguishing display names in case they are ever re-enabled.
-alg_disp_names = {'CQRRTO','CQRRTO (GEMM left)','CQRRTO','CQRRTO (GEMM left)', 'CholQR', 'CholQR2', 'sCholQR3 (no blocking)', 'sCholQR3', 'Blendenpik (single-shot)', 'Blendenpik (single-shot, zero x_0)', 'Blendenpik (sketch-and-solve x_0)', 'Blendenpik', 'unpreconditioned'};
+alg_disp_names = {'CQRRTO','CQRRTO (GEMM left)','CQRRTO','CQRRTO (GEMM left)', 'CholQR', 'CholQR2', 'sCholQR3 (no blocking)', 'sCholQR3', 'Blendenpik (single-shot)', 'Blendenpik (single-shot, zero x_0)', 'Blendenpik (sketch-and-solve x_0)', 'Blendenpik', 'unprecond'};   % 'unprecond' (2026-09-27, Oleg): the CSV name stays 'unpreconditioned', only the label is short
 
 % =========================================================================
 %  Load CSVs.  count_comment_lines is a helper in this directory; we rely on
@@ -112,6 +111,7 @@ T = readtable(results_path, opts);
 % figures share one metric with its floor at the data noise level. Joined
 % BEFORE aggregate_runs so the kept run carries its own value.
 T = attach_data_error(T, strrep(results_path, '_results.csv', '_rounds.csv'));
+T = attach_kw_backward_error(T, strrep(results_path, '_results.csv', '_backward_error.csv'));
 
 % Multi-run CSVs (num_runs > 1, 2026-08-05): collapse to one row per algorithm
 % up front, so every column copy below sees the aggregated table. agg_note
@@ -153,13 +153,10 @@ T(ismember(T.algorithm, alg_plot_exclude), :) = [];
 algorithms       = T.algorithm;
 qr_status        = T.qr_status;
 qr_time          = T.qr_time_us;
-peak_rss_kb      = T.peak_rss_kb;
-analytical_kb    = T.analytical_kb;
 ir_total_us      = T.ir_total_us;
 ir_inner_total   = T.ir_inner_iters_total;
 ls_residual_norm = T.ls_residual_norm;
 ls_data_error    = T.ls_data_error;      % ||Ax-b||/||b||, attach_data_error (2026-09-14)
-ls_solution_err  = T.ls_solution_error;
 orth_error       = T.orth_error;
 m_val            = T.m(1);
 n_val            = T.n(1);
@@ -225,8 +222,7 @@ rescued = false(n_algs, 1);
 if has_retries
     for a = 1:n_algs
         if ~sel_failed(a) && T.chol_retries(sel_idx(a)) > 0
-            rescued(a) = true;
-            disp_labels{a} = [disp_labels{a} '*'];
+            rescued(a) = true;   % no label marker since 2026-09-27: the paper's tables carry the retry counts
         end
     end
 end
@@ -239,19 +235,22 @@ end
 % own; a live row that never ran the oracle gets a double dagger. Eras without
 % the knob keep the old rendering. See be_censoring.m.
 BE = be_censoring(T, sel_idx, sel_failed, results_path);
-for a = 1:n_algs
-    if BE.censored(a),  disp_labels{a} = [disp_labels{a} '^{\dagger}']; end
-    if BE.no_oracle(a), disp_labels{a} = [disp_labels{a} '^{\ddagger}']; end
-end
+% Dagger / double-dagger label suffixes REMOVED (2026-09-27, Max): the censored
+% row is still washed out in the iteration panel below (BE.censored), and the
+% paper's caption and Toeplitz table carry the verdict in words.
+
 
 % =========================================================================
-%  Main figure: 1x4 layout (2026-09-07, per Oleg: one line, same footprint as
-%  the synthetic-experiment panels; the peak-memory panel is dropped from the
-%  paper figures, its numbers are stated in the text)
+%  Main figure: 1x5 layout (1x4 from 2026-09-07 per Oleg, one line, same
+%  footprint as the synthetic-experiment panels; the peak-memory panel is dropped
+%  from the paper figures, its numbers are stated in the text)
 %    (1) Stacked timing QR+IR        (2) Inner CG iterations
-%    (3) Q-factor orthogonality loss (4) Normwise backward error
-%  Optional tiles, appended to the right when enabled: memory (SHOW_MEMORY),
-%  LS forward error (SHOW_FORWARD). Per-panel paper export lives in run_all.m.
+%    (3) Q-factor orthogonality loss (4) Data error (ACCURACY_METRIC, 2026-09-14)
+%    (5) Sketched Karlson-Walden backward error (SHOW_KW, 2026-09-21)
+%  The peak-memory and LS-forward-error panels were retired on 2026-09-07 and
+%  2026-09-04 respectively; their disabled code was removed 2026-09-21 (git
+%  history has it). Per-panel paper export lives in run_all.m, whose PAPER_SUFFIX
+%  list must match the tile order.
 %  (QR-build canonical rate + adaptive-shift retries panels removed 2026-08-24
 %   per Oleg's review.)
 % =========================================================================
@@ -261,9 +260,11 @@ if isempty(main_tab)
 else
     parent_main = main_tab;
 end
-SHOW_MEMORY   = false;  % 2026-09-07 (Oleg): peak-memory panel out of the paper figures
 SHOW_BACKWARD = true;   % accuracy panel on (4th tile); metric chosen below
-SHOW_FORWARD  = false;  % 2026-09-04 (Max): forward-error panel dropped from the paper layout
+SHOW_KW       = true;   % 2026-09-21 (Max): sketched Karlson-Walden backward error, the
+                        % quantity Epperly's stopping rule targets. Read from the
+                        % *_backward_error.csv sidecar, which is written whether or not
+                        % the oracle drove termination, so it is comparable across eras.
 % 2026-09-14 (Max): 'data' plots ||Ax-b||/||b|| (ls_data_error, from the rounds
 % sidecar), the same metric as the Toeplitz data-error panel, so both benchmark
 % figures read directly against the 1e-11 noise floor. 'backward' restores the
@@ -272,7 +273,7 @@ SHOW_FORWARD  = false;  % 2026-09-04 (Max): forward-error panel dropped from the
 % solution BEST on native_ill (CholQR2, ||x|| in the denominator), which is why
 % it was retired from the paper figures.
 ACCURACY_METRIC = 'data';
-n_tiles = 4 + SHOW_MEMORY + SHOW_FORWARD;
+n_tiles = 4 + SHOW_KW;
 tl_main = tiledlayout(parent_main, 1, n_tiles, 'TileSpacing', 'compact', 'Padding', 'compact');
 
 title_label = sprintf('Sparse IR-LSQ Benchmark — %d \\times %d', m_val, n_val);
@@ -321,14 +322,18 @@ if isfile(breakdown_path)
     end
 end
 qr_ms(sel_failed) = 0; inner_ms(sel_failed) = 0; ovh_ms(sel_failed) = 0; ws_ms(sel_failed) = 0;
+% Plotted in SECONDS since 2026-09-27: the FEM totals reach 7e4 ms, and MATLAB's
+% "x10^4" exponent label does not survive the 110-pt paper panel. The vectors
+% keep their _ms names; every use below (bars, ylim, FAIL text) is in seconds.
+qr_ms = qr_ms/1e3; ws_ms = ws_ms/1e3; inner_ms = inner_ms/1e3; ovh_ms = ovh_ms/1e3;
 b = bar(x_pos, [qr_ms, ws_ms, inner_ms, ovh_ms], 'stacked');
-b(1).FaceColor = w_blue;      b(1).DisplayName = 'QR / sketch build';
+b(1).FaceColor = w_blue;      b(1).DisplayName = 'build';        % short legend entries for the four-across paper row (2026-09-27)
 b(2).FaceColor = w_vermilion; b(2).DisplayName = 'warm start (x_0 build)';
-b(3).FaceColor = w_orange;    b(3).DisplayName = 'solve: inner CG';
-b(4).FaceColor = w_gray;      b(4).DisplayName = 'solve: outer loop';
+b(3).FaceColor = w_orange;    b(3).DisplayName = 'inner CG';
+b(4).FaceColor = w_gray;      b(4).DisplayName = 'outer loop';
 if ~any(ws_ms > 0),  delete(b(2)); end           % legend stays clean on old data
 if ~any(ovh_ms > 0), b(3).DisplayName = 'solve'; delete(b(4)); end
-ylabel('Time (ms)'); title('Wall-time per algorithm');
+ylabel('Time (s)'); title('Wall-time per algorithm');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 legend('Location', 'northeast'); grid on; box on;   % 2026-09-04 (Max): legend top-right
 tot_ms = qr_ms + ws_ms + inner_ms + ovh_ms;
@@ -342,7 +347,6 @@ end
 
 % ---- Accuracy: data error (default) or Higham normwise backward error ----
 % 2026-09-04 (Max): paper layout = wall clock, iterations, storage, orthogonality
-% loss, accuracy (5th). The forward-error panel is off (SHOW_FORWARD).
 if SHOW_BACKWARD
 nexttile(tl_main, 4);   % accuracy: 4th panel (2026-09-07 order)
 switch ACCURACY_METRIC
@@ -387,20 +391,6 @@ end  % SHOW_BACKWARD
 % ---- (3) Memory: peak RSS vs analytical prediction ----
 % analytical <= 0 = "no analytical model" (-1 sentinel since 2026-08-27; 0 in
 % older CSVs): no bar, rather than a real-looking zero-MB bar.
-if SHOW_MEMORY
-nexttile(tl_main, 5);   % optional 5th tile (2026-09-07)
-mem_peak = arrayfun(@(i) peak_rss_kb(i),   sel_idx) / 1024;     % MB
-mem_pred = arrayfun(@(i) analytical_kb(i), sel_idx) / 1024;     % MB
-mem_pred(mem_pred <= 0) = NaN;
-mem_peak(sel_failed) = NaN;  mem_pred(sel_failed) = NaN;
-b = bar(x_pos, [mem_peak, mem_pred], 'grouped');
-b(1).FaceColor = w_purple;     b(1).DisplayName = 'Peak RSS';
-b(2).FaceColor = w_ltgray;     b(2).DisplayName = 'Analytical';
-ylabel('Memory (MB)'); title('Peak vs predicted working memory');
-xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
-legend('Location', 'northwest'); grid on; box on;
-end  % SHOW_MEMORY
-
 % ---- (4) Inner CG iterations (total across the outer IR rounds) ----
 % Algorithmic signal: lower = R is a better preconditioner for A^T A. Outer
 % rounds VARY per method (up to ir_n_steps, with outer_tol and the LS-floor
@@ -417,7 +407,7 @@ inner_iters(sel_failed) = NaN;
 % duration, and nowhere else. This panel shows exactly one thing: iterations
 % actually performed.
 bar(x_pos, inner_iters, 'FaceColor', w_orange);
-ylabel('Inner CG iterations (total)');
+ylabel('Inner CG iterations');   % short enough to fit the paper panel; capital I (Max, 2026-09-27)
 % Backward-error termination (2026-09-18, see be_censoring.m and the tick-label
 % markers above): censored methods (stopped short of the target) and rows that
 % never ran the oracle are washed out here as well; the bar-top text stays the
@@ -482,34 +472,44 @@ end
 % inner iterations, worst forward error in the cell). Panels (2) and (5) alone
 % cannot show that; this panel is the discriminating one. -1 sentinel = no
 % ground truth for the row.
-if SHOW_FORWARD
-nexttile(tl_main, 5 + SHOW_MEMORY);   % optional trailing tile (2026-09-07)
-fwd = arrayfun(@(i) ls_solution_err(i), sel_idx);
-fwd(sel_failed) = NaN;
-fwd(fwd < 0) = NaN;
-bar(x_pos, fwd, 'FaceColor', w_blue); set(gca, 'YScale', 'log');
-% Dynamic decade limits, same rationale as panel (2): log bars draw from the
-% axis bottom, so a hard floor can hide the most accurate methods entirely.
-fin = fwd(isfinite(fwd) & fwd > 0);
+% ---- Sketched Karlson-Walden backward error (2026-09-21) ----
+% This is the quantity Epperly-Meier-Nakatsukasa's stopping rule targets. It is
+% NOT the data error: an era that stops on this criterion can sit orders of
+% magnitude above the residual floor while its backward error is tiny, which is
+% exactly the divergence the [0919 kw1] vs [0921 f16] comparison exposes. The
+% sidecar measures it in both eras, so the two are comparable here even though
+% the results column be_final is -1 whenever the oracle was off.
+if SHOW_KW
+nexttile(tl_main, 5);
+kw = arrayfun(@(i) T.be_kw_measured(i), sel_idx);
+kw(sel_failed) = NaN;
+kw(kw < 0) = NaN;
+bar(x_pos, kw, 'FaceColor', w_purple); set(gca, 'YScale', 'log');
+fin = kw(isfinite(kw) & kw > 0);
 if ~isempty(fin)
     ylim([10^(floor(log10(min(fin))) - 1), 10^ceil(log10(max(fin)))]);
 else
-    ylim([1e-16, 1e0]);
+    ylim([1e-18, 1e0]);
 end
-ylabel('||x - x_{true}|| / ||x_{true}||'); title('LS solution error (forward)');
+% The era's own target, when it ran with the oracle on: the line every bar to its
+% left cleared by construction.
+if isfield(BE, 'active') && BE.active && BE.be_tol > 0
+    hold on; yline(BE.be_tol, '--', sprintf('target %.1e', BE.be_tol), ...
+                   'Color', w_vermilion, 'LineWidth', 1.1, ...
+                   'LabelHorizontalAlignment', 'left'); hold off;
+end
+ylabel('sketched KW backward error / ||A||_F');
+title('Backward error (Karlson-Walden)');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 grid on; box on;
 yl = ylim;
 for a = 1:n_algs
-    if sel_failed(a)
-        text(x_pos(a), yl(2)*0.9, 'FAIL', 'HorizontalAlignment', 'center', ...
+    if sel_failed(a) || isnan(kw(a))
+        text(x_pos(a), yl(2)*0.9, 'n/a', 'HorizontalAlignment', 'center', ...
              'FontWeight', 'bold', 'Color', w_vermilion);
-    elseif isnan(fwd(a))
-        text(x_pos(a), yl(2)*0.9, 'N/A', 'HorizontalAlignment', 'center', ...
-             'FontWeight', 'bold', 'Color', w_gray);
     end
 end
-end  % SHOW_FORWARD
+end  % SHOW_KW
 
 % Footnote for the asterisked labels REMOVED per Max (2026-09-04): the asterisk
 % stays on the x labels; its meaning (adaptive-shift-rescued row) is documented
