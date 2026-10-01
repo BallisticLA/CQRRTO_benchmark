@@ -11,6 +11,10 @@ function C = be_censoring(T, rows, failed, results_path)
 %     C.no_oracle  live row that never ran the oracle (LSQR rows, rows merged in
 %                  from an era without the knob); a count, not a verdict
 %     C.be_final   the recorded final estimate (NaN where absent)
+%     C.mode       'none', 'be' (backward-error target) or 'floor' (see below)
+%     C.floor      the data-error floor in floor mode, -1 otherwise
+%   Floor mode: with no be_tol in the header, rows are judged against the attainable
+%   data error (data_error_floor_from_header); be_final then holds the data error.
 %   All logical fields are columns aligned with `rows`. `failed` marks rows whose
 %   build failed (qr_status ~= 0); those are neither censored nor no_oracle.
 %
@@ -21,12 +25,28 @@ function C = be_censoring(T, rows, failed, results_path)
     n = numel(rows);
     C.be_tol    = be_target_from_header(results_path);
     C.active    = C.be_tol > 0;
+    C.mode      = 'none'; C.floor = -1;
     C.ran       = false(n, 1);
     C.converged = false(n, 1);
     C.censored  = false(n, 1);
     C.no_oracle = false(n, 1);
     C.be_final  = nan(n, 1);
-    if ~C.active, return; end
+    if ~C.active
+        [fl, ok, col] = data_error_floor_from_header(results_path, T, rows);
+        if ~ok, return; end                       % no floor or no data-error column: nothing is marked
+        FLOOR_TOL = 0.05;                         % "reached the floor" = within 5% (matches the tables)
+        live     = ~failed(:);
+        de       = T.(col)(rows); de = de(:);
+        measured = live & isfinite(de) & de >= 0;
+        C.mode      = 'floor'; C.floor = fl; C.active = true;
+        C.ran       = measured;
+        C.be_final  = de;
+        C.converged = measured & (de <= (1 + FLOOR_TOL) * fl);
+        C.censored  = measured & ~C.converged;
+        C.no_oracle = false(size(live));          % no row is washed for lacking an oracle in this mode
+        return;
+    end
+    C.mode = 'be';
 
     need = {'t_be_us', 'be_final', 'stop_reason'};
     missing = need(~ismember(need, T.Properties.VariableNames));

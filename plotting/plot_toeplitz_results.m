@@ -291,7 +291,11 @@ if BE.active
         bar(x, iters_c, 'FaceColor', 'w', 'FaceAlpha', 0.6, ...
             'EdgeColor', w_orange, 'LineStyle', '--', 'LineWidth', 1.2);
     end
-    title(sprintf('Inner CG iterations to backward-error target (%.1e)', BE.be_tol));
+    if strcmp(BE.mode, 'floor')
+        title(sprintf('Inner CG iterations to the data-error floor (%.1e)', BE.floor));
+    else
+        title(sprintf('Inner CG iterations to backward-error target (%.1e)', BE.be_tol));
+    end
 else
     title('Inner CG iterations (PCG-NE) to convergence');
 end

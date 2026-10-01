@@ -262,6 +262,9 @@ NOTE_KW1_F = 'BACKWARD-ERROR TERMINATION (sketched Karlson-Walden <= sqrt(n) u |
 ERA_F16B = '[0921 f16 old-rule]';
 NOTE_F16B_T = 'OLD STOPPING RULE, MATCHED (inner absolute floor 1e-16, outer tol 1e-12, be_tol_mult=0 = oracle off); companion to [0919 kw1], same binary/cells/node; no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem SPR, non-exclusive); timings citable within-era';
 NOTE_F16B_F = 'OLD STOPPING RULE, MATCHED (inner absolute floor 1e-16, outer tol 1e-12, be_tol_mult=0 = oracle off); companion to [0919 kw1], same binary/cells/node; NOISY RHS noise_level=1e-11; unpreconditioned row runs IN-era (mask 247); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (long-bigmem SPR, non-exclusive); timings citable within-era';
+ERA_P5 = '[1002 p5 in-loop-BE]';
+NOTE_P5_T = 'kw1 rule, sketched KW target also polled every 5 inner iterations';
+NOTE_P5_F = 'f16 rule, no mu augmentation';
 
 NOTE_G1 = 'INNER GUARD FIX (inner_abs_tol passed to the Toeplitz driver; probe cycles no longer inflate inner counts); no-symmetrization arm, adaptive shift rescue ACTIVE; d=2n; 3 runs; 64 threads (campus-bigmem srm1526, non-exclusive); Karlson-Walden BE sidecar; timings citable within-era';
 
@@ -275,6 +278,7 @@ NOTE_G1 = 'INNER GUARD FIX (inner_abs_tol passed to the Toeplitz driver; probe c
 TOEP_CAMPAIGNS = {
     'toeplitz_ls_0919_kw1_pcg_ne', ERA_KW1,  NOTE_KW1_T,  {'small','fixedm','middle','large'}, false
     'toeplitz_ls_0921_f16_pcg_ne', ERA_F16B, NOTE_F16B_T, {'small','fixedm','middle','large'}, false
+    'toeplitz_ls_1002_p5_pcg_ne',  ERA_P5,   NOTE_P5_T,   {'small','fixedm','middle','large'}, false
 %   'toeplitz_ls_0914_g1_pcg_ne',  ERA_G1,  NOTE_G1,  {'small','fixedm','middle','large'},  false
 %   'toeplitz_ls_0902_ns1_pcg_ne', ERA_NS1, NOTE_NS1, {'small','fixedm','middle','large'},  false
 %   'toeplitz_ls_0831_a1_pcg_ne',  ERA_A3, NOTE_A3, {'small','fixedm','middle','large'},  false
@@ -306,6 +310,7 @@ OVERLAY_UP1 = 'irlsq_reg_0915_up1';
 FEM2_CAMPAIGNS = {
     'irlsq_reg_0919_kw1',      ERA_KW1,  NOTE_KW1_F,  {'dd'}, ''
     'irlsq_reg_0921_f16',      ERA_F16B, NOTE_F16B_F, {'dd'}, ''
+    'irlsq_reg_1002_p5',       ERA_P5,   NOTE_P5_F,   {'dd'}, ''
 %   'irlsq_reg_0914_be1',      ERA_BE1, NOTE_BE1, {'dd'}, OVERLAY_UP1
 %   'irlsq_reg_0911_n11',      ERA_N11, NOTE_N11, {'dd'}, OVERLAY_UP1
 %   'irlsq_reg_0902_ns1',      ERA_NS1, NOTE_NS1, {'dd'}, ''
