@@ -48,7 +48,7 @@ function gen_fem2_ill(out_dir, do_verify)
 % ---------------------------------------------------------------------------
 %
 % Inputs:
-%   out_dir   : where the .mtx land (default input_matrices_ill/)
+%   out_dir   : where the .mtx land (default matrices/ill/)
 %   do_verify : logical, dense values-only SVD check of the small triple
 %               (default false). At 75824x8304 that is a ~5 GB dense solve --
 %               do NOT enable it on a memory-constrained machine.
@@ -58,7 +58,8 @@ function gen_fem2_ill(out_dir, do_verify)
 %   gen_fem2_ill([], true);            % + verify kappa locally (heavy)
 
 here = fileparts(mfilename('fullpath'));
-if nargin < 1 || isempty(out_dir),   out_dir   = fullfile(here, 'input_matrices_ill'); end
+repo_root = fileparts(here);   % 2026-09-21: matrices/ consolidation (was input_matrices_ill)
+if nargin < 1 || isempty(out_dir),   out_dir   = fullfile(repo_root, 'matrices', 'ill'); end
 if nargin < 2 || isempty(do_verify), do_verify = false; end
 addpath(fullfile(here, 'fem_gen'));    % build_gsvd_benchmark_2d
 addpath(fullfile(here, 'utils'));      % (not needed for the single triple; kept so a

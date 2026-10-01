@@ -28,3 +28,8 @@ input_matrices_ill/
 
 # Windows NTFS alternate-data-stream artifacts, created when copying through Windows.
 *:Zone.Identifier
+
+# Stray pdfTeX artifact: exportgraphics with a LaTeX interpreter drops texput.log
+# in the working dir. Removed from tracking 2026-09-21.
+texput.log
+*.aux

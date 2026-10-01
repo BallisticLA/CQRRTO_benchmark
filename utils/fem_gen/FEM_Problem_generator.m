@@ -26,7 +26,10 @@ function FEM_Problem_generator(out_dir, basename)
 %   FEM_Problem_generator(out_dir, basename);                    % custom paths
 
 if nargin < 1
-    out_dir = '/home/mymel/matlab/CQRRTO_benchmark/input_matrices';
+    % 2026-09-21: was an absolute machine-specific path to the retired
+    % input_matrices/ tree. Resolve relative to this file instead: utils/fem_gen
+    % -> utils -> repo root -> matrices/.
+    out_dir = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), 'matrices');
 end
 if nargin < 2
     basename = 'FEM_Problem_2_corrected';

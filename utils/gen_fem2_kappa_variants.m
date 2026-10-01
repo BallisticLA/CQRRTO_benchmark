@@ -22,7 +22,7 @@ function gen_fem2_kappa_variants(out_dir, targets, cal_points, do_verify)
 % per target; uses a fill-reduced Cholesky to keep it as fast as possible).
 %
 % Inputs:
-%   out_dir    : where the .mtx land (default input_matrices/)
+%   out_dir    : where the .mtx land (default matrices/contrast/)
 %   targets    : target condition numbers (default [1e7 1e9 1e11])
 %   cal_points : Nx2 [rho kappa] measurements that fix the power law.
 %                Default [1e2 1.711e4; 5.8445e4 3.006e6] (measured 2026-06-18).
@@ -35,7 +35,8 @@ function gen_fem2_kappa_variants(out_dir, targets, cal_points, do_verify)
 
 here = fileparts(mfilename('fullpath'));
 if nargin < 1 || isempty(out_dir)
-    out_dir = fullfile(here, 'input_matrices');   % next to this script: portable Win/Linux
+    % 2026-09-21: matrices/ consolidation (was input_matrices next to this script)
+    out_dir = fullfile(fileparts(here), 'matrices', 'contrast');
 end
 if nargin < 2 || isempty(targets),    targets    = [1e7 1e9 1e11]; end
 if nargin < 3 || isempty(cal_points), cal_points = [1e2 1.711e4; 5.8445e4 3.006e6]; end

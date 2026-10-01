@@ -37,7 +37,12 @@ function gen_fem2_hard_variants(out_dir, targets, nxf, nyf, r, seed, nstages)
 
 here = fileparts(mfilename('fullpath'));
 addpath(fullfile(here, 'utils'));
-if nargin < 1 || isempty(out_dir), out_dir = fullfile(here, 'input_matrices_hard'); end
+% 2026-09-21: the three sibling input_matrices*/ trees were consolidated into
+% matrices/ on 2026-07-27; this default still pointed at the retired name, so a
+% documented regeneration (gen_fem2_hard_variants([], target)) wrote to a stale
+% path under utils/. repo_root = parent of utils/.
+repo_root = fileparts(here);
+if nargin < 1 || isempty(out_dir), out_dir = fullfile(repo_root, 'matrices', 'hard-kcolnorm'); end
 if nargin < 2 || isempty(targets), targets = [1e7 1e9 1e11]; end   % target kappa^colnorm
 if nargin < 3 || isempty(nxf), nxf = 390; end   % near-original: coarse n=8256, fine m=75466
 if nargin < 4 || isempty(nyf), nyf = 195; end

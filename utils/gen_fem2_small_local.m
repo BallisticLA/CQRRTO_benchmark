@@ -23,7 +23,8 @@ function [K, M, V] = gen_fem2_small_local(out_dir, rho, nxf, nyf, r, coeff, rota
 
 here = fileparts(mfilename('fullpath'));
 addpath(fullfile(here, 'utils'));                 % compute_kappa_variants
-if nargin < 1, out_dir = fullfile(here, 'input_matrices_local'); end
+% 2026-09-21: matrices/ consolidation (was input_matrices_local under utils/).
+if nargin < 1, out_dir = fullfile(fileparts(here), 'matrices', 'local'); end
 if nargin < 2 || isempty(rho), rho = 1e5; end
 if nargin < 3 || isempty(nxf), nxf = 96; end     % fine cells in x
 if nargin < 4 || isempty(nyf), nyf = 48; end     % fine cells in y  ([0,4]x[0,2] -> ~square cells)

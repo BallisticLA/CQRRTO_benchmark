@@ -2,18 +2,20 @@
 
 MATLAB post-processing companion for the Q-less randomized QR (CQRRT) least-squares work in
 [RandLAPACK](https://github.com/BallisticLA/RandLAPACK): campaign plotting for the FEM2
-iteratively-refined LSQ, Toeplitz LS, rspec, and diagnostic benchmark families, plus the FEM
-test-matrix generators. The C++ benchmarks themselves live in RandLAPACK
-(`benchmark/bench_CQRRT/`); results are produced on a cluster and staged into `results/`
-here for plotting.
+iteratively-refined LSQ and Toeplitz LS benchmark families, plus the FEM test-matrix
+generators. The C++ benchmarks themselves live in RandLAPACK
+(`benchmark/bench_CQRRTO_linops/` and `benchmark/bench_toeplitz_ls/`); results are produced
+on a cluster and staged into `results/` here for plotting. The `rspec` and diagnostic
+families were retired upstream on 2026-09-17 along with their drivers.
 
 ## How to run
 
 [`run_all.m`](run_all.m) (MATLAB) is the plotting entry point. It renders every configured
 campaign era into tabbed figure groups and exports each tab as a PDF into `figures/`,
 **wiping all prior PDFs first** so `figures/` always holds exactly the current run. Campaign
-eras are declared in descriptor tables at the top of the script and are marked in the figure
-name, tab title, in-plot super-title, and PDF filename prefix. Read the header block before
+eras are declared in descriptor tables at the top of the script and are marked in three
+places: the figure name, the tab title, and the PDF filename prefix. (Era tags were dropped
+from the in-plot super-titles on 2026-07-30 to keep panel titles clean.) Read the header block before
 adding a campaign: wall-clock comparability caveats across hardware eras are documented
 there.
 
