@@ -39,6 +39,11 @@ names within folders may vary):
 | `archive/YYYY-MM-DD-<reason>/` | Retired material (created on first use) |
 | `run_all.m` | Plotting entry point |
 
+**Paper figures**: the paper's benchmark figures are drawn outside MATLAB from the bar values
+these plotters compute. `plotting/dump_paper_bars.m` runs `plot_irlsq_results` and
+`plot_toeplitz_results` for era `1002_p5` on invisible figures and writes every plotted bar,
+tick label and annotation to JSON (no figure windows, no export).
+
 **Data policy**: this repo is code-only while campaigns are active — `results/` and
 `figures/` are not tracked (raw data lives on the cluster and in local working trees). When
 a campaign freezes for a paper, its final results are committed deliberately as the
