@@ -352,11 +352,11 @@ nexttile(tl_main, 4);   % accuracy: 4th panel (2026-09-07 order)
 switch ACCURACY_METRIC
     case 'data'
         resid = arrayfun(@(i) ls_data_error(i), sel_idx);
-        acc_ylabel = '||Ax - b|| / ||b||';
+        acc_ylabel = '$\|Mx-b\|_2/\|b\|_2$';   % LaTeX, the paper's notation (Oleg, 2026-10-01: Figures 7-11)
         acc_title  = 'Data error';
     case 'backward'
         resid = arrayfun(@(i) ls_residual_norm(i), sel_idx);
-        acc_ylabel = '||Ax - b|| / (||A||\cdot||x|| + ||b||)';
+        acc_ylabel = '$\|Mx-b\|_2/(\|M\|_2\,\|x\|_2+\|b\|_2)$';
         acc_title  = 'Normwise backward error';
     otherwise
         error('plot_irlsq_results: ACCURACY_METRIC must be ''data'' or ''backward'', got ''%s''', ACCURACY_METRIC);
@@ -375,7 +375,7 @@ if ~isempty(fin)
 else
     ylim([1e-16, 1e0]);
 end
-ylabel(acc_ylabel); title(acc_title);
+ylabel(acc_ylabel, 'Interpreter', 'latex'); title(acc_title);
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 grid on; box on;
 yl = ylim;
@@ -455,7 +455,7 @@ orth_vals(orth_vals < 0) = NaN;
 % (2026-07-31, Max: one orange thing per figure).
 bar(x_pos, orth_vals, 'FaceColor', w_green); set(gca, 'YScale', 'log');
 ylim([1e-16, 1e0]);
-ylabel('||Q^T Q - I||_F / \surd n'); title('Q-factor orthogonality loss');
+ylabel('$\|Q^{\mathrm{T}}Q-I\|_F/\sqrt{n}$', 'Interpreter', 'latex'); title('Q-factor orthogonality loss');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 grid on; box on;
 yl = ylim;
@@ -502,7 +502,7 @@ if isfield(BE, 'active') && BE.active && BE.be_tol > 0
                    'Color', w_vermilion, 'LineWidth', 1.1, ...
                    'LabelHorizontalAlignment', 'left'); hold off;
 end
-ylabel('sketched KW backward error / ||A||_F');
+ylabel('sketched KW backward error / $\|M\|_F$', 'Interpreter', 'latex');
 title('Backward error (Karlson-Walden)');
 xticks(x_pos); xticklabels(disp_labels); xtickangle(35);
 grid on; box on;

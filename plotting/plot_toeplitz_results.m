@@ -226,7 +226,7 @@ fin = dre(isfinite(dre) & dre > 0);
 if ~isempty(fin)
     ylim([10^(floor(log10(min(fin))) - 1), 10^ceil(log10(max(fin)))]);
 end
-ylabel('||Tx-b||/||b||'); title('Data error');
+ylabel('$\|Tx-b\|_2/\|b\|_2$', 'Interpreter', 'latex'); title('Data error');   % LaTeX, the paper's notation (Oleg, 2026-10-01: Figures 7-11)
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 
 % (4b) Sketched Karlson-Walden backward error -- the criterion Epperly's rule
@@ -248,7 +248,7 @@ if isfield(BE, 'active') && BE.active && BE.be_tol > 0
                    'Color', w_vermilion, 'LineWidth', 1.1, ...
                    'LabelHorizontalAlignment','left'); hold off;
 end
-ylabel('sketched KW backward error / ||A||_F');
+ylabel('sketched KW backward error / $\|M\|_F$', 'Interpreter', 'latex');
 title('Backward error (Karlson-Walden)');
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 yl = ylim;
@@ -321,7 +321,7 @@ ymax = 1e1;
 finite_orth = orth(isfinite(orth));
 if ~isempty(finite_orth), ymax = max(1e1, 10^ceil(log10(max(finite_orth)))); end
 bar(x, orth, 'FaceColor', w_green); set(gca,'YScale','log'); ylim([1e-16 ymax]);
-ylabel('||R^{-T}A^TA R^{-1}-I||_F/\surd n'); title('Preconditioner orthogonality loss');
+ylabel('$\|Q^{\mathrm{T}}Q-I\|_F/\sqrt{n}$', 'Interpreter', 'latex'); title('Preconditioner orthogonality loss');   % same label as the FEM panel; Q = M R^{-1}
 xticks(x); xticklabels(disp_labels); xtickangle(35); grid on; box on;
 yl = ylim;
 for a = 1:na
