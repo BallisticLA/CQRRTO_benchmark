@@ -20,6 +20,7 @@ for s = {'fixedm', 'small', 'middle', 'large'}
     close all;
     plot_toeplitz_results(size_dir, res_csv, s{1}, [], 'best');
     c = harvest(gcf); c.bench = 'toeplitz'; c.cell = s{1}; c.csv = fullfile(size_dir, res_csv); c.commit = commit_t;
+    c.be_tol = be_target_from_header(c.csv);   % backward-error target sqrt(n) u the run stopped against
     out.cells{end+1} = c;
 end
 
@@ -38,6 +39,7 @@ for s = {'native_ill_dd', 'small_kc1e10_dd', 'large_kc1e10_dd'}
     close all;
     plot_irlsq_results(cell_dir, res_csv, bd_csv, s{1}, [], [], 'best');
     c = harvest(gcf); c.bench = 'fem'; c.cell = s{1}; c.csv = fullfile(cell_dir, res_csv); c.commit = commit_f;
+    c.be_tol = be_target_from_header(c.csv);   % -1: the FEM rule has no backward-error target
     out.cells{end+1} = c;
 end
 
